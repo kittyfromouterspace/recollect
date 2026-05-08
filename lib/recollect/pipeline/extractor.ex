@@ -102,24 +102,59 @@ defmodule Recollect.Pipeline.Extractor do
 
       case existing do
         nil ->
-          %Entity{}
-          |> Entity.changeset(%{
-            collection_id: collection_id,
-            name: name,
-            entity_type: entity_type,
-            description: entity_data["description"] || entity_data[:description],
-            mention_count: 1,
-            first_seen_at: DateTime.utc_now(),
-            last_seen_at: DateTime.utc_now(),
-            owner_id: owner_id,
-            scope_id: scope_id
-          })
-          |> repo.insert()
+          changeset =
+            Entity.changeset(%Entity{}, %{
+              collection_id: collection_id,
+              name: name,
+              entity_type: entity_type,
+              description: entity_data["description"] || entity_data[:description],
+              mention_count: 1,
+              first_seen_at: DateTime.utc_now(),
+              last_seen_at: DateTime.utc_now(),
+              owner_id: owner_id,
+              scope_id: scope_id
+            })
+
+          case repo.insert(changeset) do
+            {:ok, entity} ->
+              Config.on_graph_change().(%{
+                type: :entity,
+                operation: :insert,
+                data: %{
+                  id: entity.id,
+                  name: entity.name,
+                  entity_type: entity.entity_type,
+                  owner_id: owner_id,
+                  scope_id: scope_id
+                }
+              })
+
+              {:ok, entity}
+
+            error ->
+              error
+          end
 
         entity ->
-          entity
-          |> Entity.increment_mentions_changeset()
-          |> repo.update()
+          case repo.update(Entity.increment_mentions_changeset(entity)) do
+            {:ok, updated} ->
+              Config.on_graph_change().(%{
+                type: :entity,
+                operation: :update,
+                data: %{
+                  id: updated.id,
+                  name: updated.name,
+                  entity_type: updated.entity_type,
+                  owner_id: owner_id,
+                  scope_id: scope_id
+                }
+              })
+
+              {:ok, updated}
+
+            error ->
+              error
+          end
       end
     else
       {:error, "Invalid entity type: #{entity_type}"}
@@ -140,24 +175,61 @@ defmodule Recollect.Pipeline.Extractor do
 
       case existing do
         nil ->
-          %Relation{}
-          |> Relation.changeset(%{
-            from_entity_id: from_id,
-            to_entity_id: to_id,
-            relation_type: relation_type,
-            weight: weight,
-            source_chunk_id: source_chunk_id,
-            owner_id: owner_id,
-            scope_id: scope_id
-          })
-          |> repo.insert()
+          changeset =
+            Relation.changeset(%Relation{}, %{
+              from_entity_id: from_id,
+              to_entity_id: to_id,
+              relation_type: relation_type,
+              weight: weight,
+              source_chunk_id: source_chunk_id,
+              owner_id: owner_id,
+              scope_id: scope_id
+            })
+
+          case repo.insert(changeset) do
+            {:ok, relation} ->
+              Config.on_graph_change().(%{
+                type: :relation,
+                operation: :insert,
+                data: %{
+                  id: relation.id,
+                  relation_type: relation.relation_type,
+                  from_entity_id: from_id,
+                  to_entity_id: to_id,
+                  owner_id: owner_id,
+                  scope_id: scope_id
+                }
+              })
+
+              {:ok, relation}
+
+            error ->
+              error
+          end
 
         relation ->
           new_weight = (relation.weight + weight) / 2.0
 
-          relation
-          |> Relation.changeset(%{weight: new_weight})
-          |> repo.update()
+          case repo.update(Relation.changeset(relation, %{weight: new_weight})) do
+            {:ok, updated} ->
+              Config.on_graph_change().(%{
+                type: :relation,
+                operation: :update,
+                data: %{
+                  id: updated.id,
+                  relation_type: updated.relation_type,
+                  from_entity_id: from_id,
+                  to_entity_id: to_id,
+                  owner_id: owner_id,
+                  scope_id: scope_id
+                }
+              })
+
+              {:ok, updated}
+
+            error ->
+              error
+          end
       end
     else
       {:error, "Invalid relation type: #{relation_type}"}

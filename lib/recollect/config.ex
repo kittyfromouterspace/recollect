@@ -156,4 +156,25 @@ defmodule Recollect.Config do
   def task_supervisor do
     Application.get_env(:recollect, :task_supervisor, Recollect.TaskSupervisor)
   end
+
+  @doc """
+  Optional callback invoked when entities or relations are persisted.
+
+  Called by `Recollect.Pipeline.Extractor.persist_entities/2` and
+  `persist_relations/3` after successful database operations.
+
+  The host app can set this via `config :recollect, on_graph_change: {mod, fun, args}`
+  where the function receives a map like `%{type: :entity | :relation, operation: :insert | :update, data: map}`.
+
+  Returns `:ok` or is ignored if not configured.
+  """
+  def on_graph_change do
+    case Application.get_env(:recollect, :on_graph_change) do
+      {module, function, args} when is_atom(module) and is_atom(function) and is_list(args) ->
+        fn event -> apply(module, function, args ++ [event]) end
+
+      nil ->
+        fn _event -> :ok end
+    end
+  end
 end

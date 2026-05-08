@@ -1,5 +1,30 @@
 # BACKLOG
 
+## `Recollect.Embedding.Mock` unreachable from dependent apps (regressed in v0.5.1)
+
+**Priority:** Medium | **Complexity:** Low | **Added:** 2026-04-17
+
+### Problem
+
+The cleanup in v0.5.1 moved `Recollect.Embedding.Mock` from `lib/recollect/embedding/mock.ex` to `test/support/embedding_mock.ex`. Recollect's own suite still compiles it (because `elixirc_paths(:test)` includes `test/support`), but `test/support` is **not** shipped when Recollect is consumed as a git or Hex dependency. Downstream test suites that reference `Recollect.Embedding.Mock` (e.g. Worth's `config/test.exs` sets `provider: Recollect.Embedding.Mock`) hit `UndefinedFunctionError` at runtime when they use `prod`-compiled Recollect.
+
+Worth worked around this in v0.2.1-alpha.10 by adding a local copy at `test/support/recollect_embedding_mock.ex`. That shim should go away once Recollect ships the mock in a shared location again.
+
+### Options
+
+1. **Move the mock back under `lib/` in a clearly-namespaced module** (e.g. `lib/recollect/testing/embedding_mock.ex`). Ships with the package, no downstream duplication, easy for other adapters to reuse.
+2. **Add a dedicated `:recollect_testing` sibling package** that exports mocks/fixtures. More ceremony, cleaner dep graph — probably overkill at current scale.
+3. **Accept the current state and document the required duplication in `usage-rules/maintenance.md`** so every consumer knows to copy the mock. Lowest-effort, but error-prone.
+
+Leaning toward option 1 — a thin module annotated `@moduledoc "Test-only. Do not use in production."` keeps the impl in one place.
+
+### When fixed
+
+- Remove `worth/test/support/recollect_embedding_mock.ex`.
+- Bump Recollect minor and Worth's git dep pin; no other code changes required in Worth.
+
+---
+
 ## Stack Transition Detection: Beyond Hardcoded Catalogs
 
 **Priority:** Medium | **Complexity:** High | **Added:** 2026-04-10
