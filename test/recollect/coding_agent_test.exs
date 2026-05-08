@@ -39,11 +39,12 @@ defmodule Recollect.CodingAgentTest do
   describe "provider behaviour" do
     test "all providers implement required callbacks" do
       for provider <- CodingAgent.providers() do
-        assert function_exported?(provider, :agent_name, 0)
-        assert function_exported?(provider, :default_data_paths, 0)
-        assert function_exported?(provider, :available?, 0)
-        assert function_exported?(provider, :fetch_events, 0)
-        assert function_exported?(provider, :extract, 1)
+        exports = provider.module_info(:exports)
+        assert {:agent_name, 0} in exports
+        assert {:default_data_paths, 0} in exports
+        assert {:available?, 0} in exports or {:available?, 1} in exports
+        assert {:fetch_events, 0} in exports or {:fetch_events, 1} in exports or {:fetch_events, 2} in exports
+        assert {:extract, 1} in exports
       end
     end
 

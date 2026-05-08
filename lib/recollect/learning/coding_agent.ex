@@ -78,6 +78,7 @@ defmodule Recollect.Learner.CodingAgent do
   @impl true
   def detect_patterns(_events), do: []
 
+  @impl true
   def summarize(events, scope_id) do
     events
     |> Enum.group_by(& &1.agent)

@@ -20,6 +20,12 @@ defmodule Recollect.MixProject do
     ]
   end
 
+  def cli do
+    [
+      preferred_envs: [check: :test]
+    ]
+  end
+
   def application do
     [
       extra_applications: [:logger],
@@ -65,7 +71,7 @@ defmodule Recollect.MixProject do
   defp aliases do
     [
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
-      check: ["format --check-formatted", "test"]
+      check: ["clean", "compile --warnings-as-errors", "format --check-formatted", "test"]
     ]
   end
 

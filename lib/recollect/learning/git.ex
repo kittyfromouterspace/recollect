@@ -103,7 +103,7 @@ defmodule Recollect.Learner.Git do
   end
 
   @impl true
-  def summarize(events, scope_id) do
+  def summarize(events, _scope_id) do
     insights = Recollect.Learner.Git.Grouper.summarize(events)
 
     deprecations =

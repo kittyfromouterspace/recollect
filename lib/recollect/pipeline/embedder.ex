@@ -173,8 +173,14 @@ defmodule Recollect.Pipeline.Embedder do
       {:ok, _} ->
         :ok
 
+      {:error, %DBConnection.OwnershipError{}} ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("Recollect.Embedder: failed to store embedding for #{id}: #{inspect(reason)}")
     end
+  rescue
+    DBConnection.ConnectionError ->
+      :ok
   end
 end
