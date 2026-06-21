@@ -71,6 +71,16 @@ defmodule Recollect.Context.Detector do
   defp run_detector(:os), do: detect_os_impl()
 
   defp detect_git_impl do
+    # `git` may be absent (e.g. a minimal prod VM) — System.cmd would raise
+    # :enoent and crash callers (remember/search). Degrade to "no git context".
+    if System.find_executable("git") do
+      detect_git_cmd()
+    else
+      []
+    end
+  end
+
+  defp detect_git_cmd do
     case System.cmd("git", ["rev-parse", "--show-toplevel"], stderr_to_stdout: true) do
       {path, 0} ->
         path = String.trim(path)
