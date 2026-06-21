@@ -47,7 +47,19 @@ defmodule Recollect.Learner.CodingAgent.Codex do
     session_events = fetch_sessions(base, opts)
     history_events = fetch_history(base)
 
-    instruction_events ++ session_events ++ history_events
+    maybe_filter_projects(instruction_events ++ session_events ++ history_events, Keyword.get(opts, :projects))
+  end
+
+  # Honor the `:projects` filter (parity with the Claude Code provider). Codex
+  # derives a session's project from its `cwd`, so this keeps only sessions whose
+  # project is in the allow-list — and drops project-less events (global
+  # instructions, `project: "unknown"` history prompts) that would otherwise be
+  # mis-attributed to whatever project a caller is harvesting.
+  defp maybe_filter_projects(events, nil), do: events
+
+  defp maybe_filter_projects(events, projects) when is_list(projects) do
+    allowed = MapSet.new(projects)
+    Enum.filter(events, fn event -> Map.get(event, :project) in allowed end)
   end
 
   @impl true
