@@ -6,6 +6,7 @@ defmodule Recollect.Graph.PostgresGraph do
   @behaviour Recollect.GraphStore
 
   alias Recollect.Config
+  alias Recollect.Util
 
   require Logger
 
@@ -48,7 +49,10 @@ defmodule Recollect.Graph.PostgresGraph do
     LIMIT 50
     """
 
-    case repo.query(sql, [entity_id, owner_id, hops]) do
+    # UUID params must be 16-byte binaries for the `$::uuid` casts. owner_id often
+    # arrives as a UUID string (e.g. the host app's constant owner) — convert both
+    # (uuid_to_bin is idempotent, so already-binary entity ids pass through).
+    case repo.query(sql, [Util.uuid_to_bin(entity_id), Util.uuid_to_bin(owner_id), hops]) do
       {:ok, %{rows: rows}} ->
         entities =
           Enum.map(rows, fn [id, name, type, desc, mentions] ->
@@ -81,7 +85,7 @@ defmodule Recollect.Graph.PostgresGraph do
       AND r.owner_id = $2::uuid
     """
 
-    case repo.query(sql, [entity_id, owner_id]) do
+    case repo.query(sql, [Util.uuid_to_bin(entity_id), Util.uuid_to_bin(owner_id)]) do
       {:ok, %{rows: rows}} ->
         relations =
           Enum.map(rows, fn [from_id, to_id, type, weight] ->
