@@ -56,6 +56,13 @@ defmodule Recollect.Mipmap do
     Enum.each(mipmaps, fn
       {level, data} when level != :entry_id ->
         entry_id_bin = Recollect.Util.uuid_to_bin(entry.id)
+        # `level` is a text column (an atom crashed the Postgrex encode) and
+        # `metadata` is jsonb on Postgres — a pre-encoded JSON string would be
+        # stored as a JSON string scalar, not an object.
+        level = to_string(level)
+
+        metadata =
+          if adapter.dialect() == :postgres, do: data.metadata, else: Jason.encode!(data.metadata)
 
         repo.query(
           """
@@ -63,7 +70,7 @@ defmodule Recollect.Mipmap do
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (entry_id, level) DO UPDATE SET content = $3, metadata = $4
           """,
-          [entry_id_bin, level, data.content, Jason.encode!(data.metadata)]
+          [entry_id_bin, level, data.content, metadata]
         )
 
         case Embedder.embed_query(data.content) do
@@ -87,6 +94,11 @@ defmodule Recollect.Mipmap do
           _ ->
             :ok
         end
+
+      # generate_for/1 carries the id alongside the levels; without this
+      # clause every persist raised FunctionClauseError on it.
+      {:entry_id, _} ->
+        :ok
     end)
 
     count = mipmaps |> Map.keys() |> Enum.reject(&(&1 == :entry_id)) |> length()
@@ -118,6 +130,9 @@ defmodule Recollect.Mipmap do
         level
       end
 
+    # text column: an atom level crashed the Postgrex encode
+    level_param = to_string(actual_level)
+
     repo = Config.repo()
     adapter = Config.adapter()
 
@@ -144,7 +159,7 @@ defmodule Recollect.Mipmap do
                 ORDER BY mm.embedding <=> $1::text::vector
                 LIMIT $4
                 """,
-                [embedding_str, Recollect.Util.uuid_to_bin(scope_id), actual_level, limit]
+                [embedding_str, Recollect.Util.uuid_to_bin(scope_id), level_param, limit]
               }
 
             _ ->
@@ -162,7 +177,7 @@ defmodule Recollect.Mipmap do
                 ORDER BY #{similarity} DESC
                 LIMIT ?
                 """,
-                [embedding_str, scope_id, actual_level, limit]
+                [embedding_str, scope_id, level_param, limit]
               }
           end
 
