@@ -99,12 +99,15 @@ defmodule Recollect.Pipeline.Embedder do
               try do
                 repo = Config.repo()
 
+                # recollect_entries has no `tags` column (never had one): selecting
+                # it failed every time and the rescue below hid it, so mipmaps
+                # were never persisted after an embed.
                 entry =
-                  "SELECT id, content, entry_type, tags, emotional_valence FROM recollect_entries WHERE id = $1"
+                  "SELECT id, content, entry_type, emotional_valence FROM recollect_entries WHERE id = $1"
                   |> repo.query([Recollect.Util.uuid_to_bin(entry_id)])
                   |> case do
-                    {:ok, %{rows: [[id, content, entry_type, tags, valence]], columns: _cols}} ->
-                      %{id: id, content: content, entry_type: entry_type, tags: tags, emotional_valence: valence}
+                    {:ok, %{rows: [[id, content, entry_type, valence]], columns: _cols}} ->
+                      %{id: id, content: content, entry_type: entry_type, tags: [], emotional_valence: valence}
 
                     _ ->
                       nil
@@ -157,7 +160,8 @@ defmodule Recollect.Pipeline.Embedder do
   end
 
   @doc "Embed a query string for search (no storage)."
-  def embed_query(text) do    start_time = System.monotonic_time()
+  def embed_query(text) do
+    start_time = System.monotonic_time()
     result = EmbeddingProvider.embed(text)
     duration = System.monotonic_time() - start_time
 
@@ -176,7 +180,10 @@ defmodule Recollect.Pipeline.Embedder do
     {query, params} =
       case adapter.dialect() do
         :postgres ->
-          pgvec = if Code.ensure_loaded?(Pgvector), do: apply(Pgvector, :new, [embedding]), else: adapter.format_embedding(embedding)
+          pgvec =
+            if Code.ensure_loaded?(Pgvector),
+              do: apply(Pgvector, :new, [embedding]),
+              else: adapter.format_embedding(embedding)
 
           {"UPDATE recollect_documents SET summary = $1, summary_embedding = $2 WHERE id = $3",
            [summary, pgvec, Recollect.Util.uuid_to_bin(id)]}
