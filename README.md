@@ -396,6 +396,23 @@ Recollect can automatically learn from external sources like git history and cod
 | `Recollect.Learner.ClaudeCode` | Claude Code projects | Decisions, code implementations, errors |
 | `Recollect.Learner.OpenCode` | OpenCode sessions | Decisions, implementations, project context |
 
+##### Harvest (bulk transcript import with consent + checkpoints)
+
+`Recollect.Learner.Harvest` is the shared bulk-import pipeline on top of the
+coding-agent learners: project-slug mapping (`ProjectMapping`), per-agent
+consent (`Consent`), per-machine incremental cursors (`Checkpoint`), and
+pluggable sinks — `:dry_run`, `:collect`, `Sink.Jsonl` (transport file),
+`Sink.Mcp` (push to a memory server's `stage_memory` tool), or a host-app
+store sink:
+
+```sh
+mix recollect.harvest --consent-status            # who may be read
+mix recollect.harvest --grant claude_code         # per-machine consent
+mix recollect.harvest --project mark_mesh         # dry-run preview
+mix recollect.harvest --project mark_mesh --sink jsonl --out notes.jsonl
+OPS_CENTER_API_KEY=sk-… mix recollect.harvest --project mark_mesh --sink mcp
+```
+
 ##### Custom Learners
 
 Implement the `Recollect.Learner` behaviour to add your own sources:
