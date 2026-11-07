@@ -5,6 +5,10 @@ defmodule Recollect.ConflictDetection do
   Uses Task.async_stream for parallel pairwise comparison.
   """
 
+  import Ecto.Query
+
+  alias Recollect.Schema.Entry
+
   @conflict_threshold 0.55
 
   @doc "Detect conflicts among entries in a scope."
@@ -29,42 +33,54 @@ defmodule Recollect.ConflictDetection do
     end
   end
 
+  # Tuple-ize once: Enum.at/2 on a list inside the pair loop is O(n^3).
   defp generate_pairs(entries) do
-    n = length(entries)
+    entries_t = List.to_tuple(entries)
+    n = tuple_size(entries_t)
 
     for i <- 0..(n - 2),
         j <- (i + 1)..(n - 1) do
-      {Enum.at(entries, i), Enum.at(entries, j)}
+      {elem(entries_t, i), elem(entries_t, j)}
     end
   end
 
   defp check_conflict(entry_a, entry_b) do
     stripped_overlap =
       Recollect.Util.text_overlap(
-        strip_polarity(entry_a["content"]),
-        strip_polarity(entry_b["content"])
+        strip_polarity(entry_a.content),
+        strip_polarity(entry_b.content)
       )
 
-    tag_overlap = Recollect.Util.jaccard(entry_a["tags"] || [], entry_b["tags"] || [])
-    overlap_score = max(stripped_overlap, tag_overlap * 0.75)
+    overlap_score = max(stripped_overlap, tag_overlap(entry_a.tags, entry_b.tags) * 0.75)
 
     if overlap_score < @conflict_threshold do
       nil
     else
-      case classify_conflict(entry_a["content"], entry_b["content"]) do
+      case classify_conflict(entry_a.content, entry_b.content) do
         nil ->
           nil
 
         reason ->
+          # Canonical pair order so the (entry_a_id, entry_b_id) unique index
+          # sees one stable row per pair regardless of input order.
+          {a_id, b_id} =
+            if entry_a.id <= entry_b.id, do: {entry_a.id, entry_b.id}, else: {entry_b.id, entry_a.id}
+
           %{
-            entry_a_id: entry_a["id"],
-            entry_b_id: entry_b["id"],
+            entry_a_id: a_id,
+            entry_b_id: b_id,
             reason: reason,
             score: overlap_score
           }
       end
     end
   end
+
+  # Two entries with no tags share nothing, not everything: empty tag lists
+  # must score 0, or every untagged pair inherits a 0.75 floor.
+  defp tag_overlap(a, b) when is_list(a) and is_list(b) and a != [] and b != [], do: Recollect.Util.jaccard(a, b)
+
+  defp tag_overlap(_, _), do: 0.0
 
   defp classify_conflict(text_a, text_b) do
     a = String.downcase(text_a)
@@ -106,44 +122,26 @@ defmodule Recollect.ConflictDetection do
     |> String.trim()
   end
 
+  # Word-boundary matching: substring checks made "backoff" match "off" and
+  # "exponential" match "on", manufacturing conflicts from innocent text.
   defp contains_any?(text, needles) do
-    Enum.any?(needles, fn needle -> String.contains?(text, needle) end)
+    Enum.any?(needles, fn needle ->
+      Regex.match?(~r/\b#{Regex.escape(needle)}\b/i, text)
+    end)
   end
 
   defp get_active_entries(scope_id) do
+    # Query through the schema: the previous raw SELECT named a nonexistent
+    # tags_json column and bound the scope as a string, so the query errored
+    # on every call and detect/1 silently returned [] forever.
     repo = Recollect.Config.repo()
 
-    case repo.query(
-           """
-             SELECT id, content, tags_json FROM recollect_entries
-             WHERE scope_id = $1 AND entry_type != 'archived'
-           """,
-           [scope_id]
-         ) do
-      {:ok, %{rows: rows, columns: columns}} ->
-        Enum.map(rows, fn row ->
-          map = Recollect.Util.row_to_map(columns, row)
-
-          tags =
-            case map["tags_json"] do
-              nil ->
-                []
-
-              json when is_binary(json) ->
-                case Jason.decode(json) do
-                  {:ok, list} when is_list(list) -> list
-                  _ -> []
-                end
-
-              _ ->
-                []
-            end
-
-          Map.put(map, "tags", tags)
-        end)
-
-      _ ->
-        []
-    end
+    from(e in Entry,
+      where: e.scope_id == ^scope_id and e.entry_type != "archived",
+      order_by: [asc: e.id],
+      select: %{id: e.id, content: e.content}
+    )
+    |> repo.all()
+    |> Enum.map(fn row -> Map.put(row, :tags, []) end)
   end
 end

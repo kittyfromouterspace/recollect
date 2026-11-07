@@ -65,10 +65,12 @@ defmodule Recollect.Conflicts do
              """
                SELECT entry_a_id, entry_b_id FROM recollect_conflicts WHERE id = $1
              """,
-             [conflict_id]
+             [Recollect.Util.uuid_to_bin(conflict_id)]
            ) do
         {:ok, %{rows: [[a_id, b_id]]}} ->
-          loser_id = if a_id == keep_entry_id, do: b_id, else: a_id
+          # Row ids come back as 16-byte binaries; compare in string space so
+          # the loser is actually the entry the caller did NOT keep.
+          loser_id = if Ecto.UUID.load!(a_id) == keep_entry_id, do: b_id, else: a_id
 
           repo.transaction(fn ->
             repo.query(
@@ -77,7 +79,7 @@ defmodule Recollect.Conflicts do
                 SET status = 'resolved', resolved_by = $1, updated_at = $2
                 WHERE id = $3
               """,
-              [keep_entry_id, now, conflict_id]
+              [Recollect.Util.uuid_to_bin(keep_entry_id), now, Recollect.Util.uuid_to_bin(conflict_id)]
             )
 
             repo.query(
@@ -90,7 +92,7 @@ defmodule Recollect.Conflicts do
             )
           end)
 
-          {:ok, %{conflict_id: conflict_id, loser_id: loser_id, kept_id: keep_entry_id}}
+          {:ok, %{conflict_id: conflict_id, loser_id: Ecto.UUID.load!(loser_id), kept_id: keep_entry_id}}
 
         _ ->
           {:error, :conflict_not_found}
@@ -110,10 +112,10 @@ defmodule Recollect.Conflicts do
              """
                SELECT entry_a_id, entry_b_id FROM recollect_conflicts WHERE id = $1
              """,
-             [conflict_id]
+             [Recollect.Util.uuid_to_bin(conflict_id)]
            ) do
         {:ok, %{rows: [[a_id, b_id]]}} ->
-          loser_id = if a_id == keep_entry_id, do: b_id, else: a_id
+          loser_id = if Ecto.UUID.load!(a_id) == keep_entry_id, do: b_id, else: a_id
 
           repo.transaction(fn ->
             repo.query(
@@ -122,13 +124,13 @@ defmodule Recollect.Conflicts do
                 SET status = 'resolved', resolved_by = $1, updated_at = $2
                 WHERE id = $3
               """,
-              [keep_entry_id, now, conflict_id]
+              [Recollect.Util.uuid_to_bin(keep_entry_id), now, Recollect.Util.uuid_to_bin(conflict_id)]
             )
 
             repo.query("DELETE FROM recollect_entries WHERE id = $1", [loser_id])
           end)
 
-          {:ok, %{conflict_id: conflict_id, deleted_id: loser_id, kept_id: keep_entry_id}}
+          {:ok, %{conflict_id: conflict_id, deleted_id: Ecto.UUID.load!(loser_id), kept_id: keep_entry_id}}
 
         _ ->
           {:error, :conflict_not_found}
@@ -144,18 +146,25 @@ defmodule Recollect.Conflicts do
     now = DateTime.utc_now()
 
     for %{entry_a_id: a, entry_b_id: b, reason: reason, score: score} <- conflicts do
+      # Upsert: refresh reason/score and REOPEN a previously resolved conflict
+      # when the contradiction is detected again. DO NOTHING silently hid
+      # recurring contradictions behind a resolved status.
       repo.query(
         """
           INSERT INTO recollect_conflicts (id, scope_id, owner_id, entry_a_id, entry_b_id, reason, score, status, detected_at, updated_at)
           VALUES ($1, $2, $3, $4, $5, $6, $7, 'open', $8, $9)
-          ON CONFLICT (entry_a_id, entry_b_id) DO NOTHING
+          ON CONFLICT (entry_a_id, entry_b_id) DO UPDATE
+            SET reason = EXCLUDED.reason,
+                score = EXCLUDED.score,
+                status = 'open',
+                updated_at = EXCLUDED.updated_at
         """,
         [
-          Ecto.UUID.generate(),
+          Ecto.UUID.bingenerate(),
           Recollect.Util.uuid_to_bin(scope_id),
           Recollect.Util.uuid_to_bin(owner_id),
-          a,
-          b,
+          Recollect.Util.uuid_to_bin(a),
+          Recollect.Util.uuid_to_bin(b),
           reason,
           score,
           now,
