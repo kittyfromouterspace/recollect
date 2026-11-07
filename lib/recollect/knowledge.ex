@@ -63,11 +63,10 @@ defmodule Recollect.Knowledge do
   end
 
   defp context_hints_for(opts) do
-    if opts[:context_hints] do
-      opts[:context_hints]
-    else
-      Detector.detect()
-    end
+    # MEM-010: :context (:auto | :none | map) and the mode config replace the
+    # old "shell out to git on every write" behavior; :context_hints remains
+    # as a deprecated alias for an explicit map.
+    Detector.resolve_context(opts)
   end
 
   defp write_entry(content, opts, tags, scope_id, context_hints) do

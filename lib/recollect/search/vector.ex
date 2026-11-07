@@ -851,7 +851,7 @@ defmodule Recollect.Search.Vector do
   end
 
   defp add_context_boost(results) do
-    current = Detector.detect()
+    current = Detector.detect_cached()
 
     if map_size(current) == 0 do
       results

@@ -4,12 +4,109 @@ defmodule Recollect.Context.Detector do
 
   Supports: Git repository, working directory, OS, and custom context.
 
-  All detector functions are pure — no side effects, easy to test.
+  NOTE: `detect/0` is NOT pure — it shells out to `git`. Hot paths
+  (remember/2, search context boosts) should use `resolve_context/1`, which
+  applies the configured mode (`context_detection: [mode: :cached]`,
+  default) and its TTL cache.
   """
 
   alias Recollect.Telemetry
 
   @detectors [:git, :path, :os]
+
+  @default_ttl_ms 60_000
+
+  @doc """
+  Detect context with a TTL cache keyed by the current working directory.
+
+  `detect/0` shells out to `git` twice per call; remember/2 and search call
+  it on EVERY write and read (MEM-010). The cached variant answers repeat
+  calls within the TTL (default 60s) from `:persistent_term` — one entry per
+  cwd, so long-lived processes working across repos don't cross-contaminate.
+
+  ## Options
+  - `:ttl_ms` — override the cache TTL (0 disables caching)
+  """
+  def detect_cached(opts \\ []) do
+    ttl = Keyword.get(opts, :ttl_ms, cache_ttl_ms())
+
+    if ttl <= 0 do
+      detect()
+    else
+      cwd = File.cwd!()
+      key = {__MODULE__, :detect_cache, cwd}
+      now = System.monotonic_time(:millisecond)
+
+      case :persistent_term.get(key, nil) do
+        {timestamp, context} when now - timestamp < ttl ->
+          context
+
+        _ ->
+          context = detect()
+          :persistent_term.put(key, {now, context})
+          context
+      end
+    end
+  end
+
+  @doc """
+  Clear the detect cache (all cwds). Hosts that change the process cwd
+  mid-flight and tests that need a cold cache should call this.
+  """
+  def clear_cache do
+    for {{__MODULE__, :detect_cache, _cwd} = key, _value} <- :persistent_term.get() do
+      :persistent_term.erase(key)
+    end
+
+    :ok
+  end
+
+  @doc """
+  Resolve the context for a write/read, honoring (in priority order):
+
+  1. an explicit `context` map / `:none` / `:auto` option
+  2. the deprecated `:context_hints` option (alias for an explicit map)
+  3. `config :recollect, context_detection: [mode: :cached | :auto | :none]`
+     (default `:cached`)
+  """
+  def resolve_context(opts) when is_list(opts) do
+    case Keyword.get(opts, :context, :unset) do
+      :unset ->
+        case Keyword.get(opts, :context_hints) do
+          hints when is_map(hints) -> hints
+          _ -> resolve_mode(mode())
+        end
+
+      :auto ->
+        detect()
+
+      :none ->
+        %{}
+
+      explicit when is_map(explicit) ->
+        explicit
+    end
+  end
+
+  defp resolve_mode(:none), do: %{}
+  defp resolve_mode(:auto), do: detect()
+  defp resolve_mode(:cached), do: detect_cached()
+  defp resolve_mode(_), do: detect_cached()
+
+  @doc "Configured context-detection mode: :cached | :auto | :none."
+  def mode do
+    case Application.get_env(:recollect, :context_detection, []) do
+      opts when is_list(opts) -> Keyword.get(opts, :mode, :cached)
+      _ -> :cached
+    end
+  end
+
+  defp cache_ttl_ms do
+    case Application.get_env(:recollect, :context_detection, []) do
+      opts when is_list(opts) -> Keyword.get(opts, :ttl_ms, @default_ttl_ms)
+      _ -> @default_ttl_ms
+    end
+  end
 
   @doc """
   Detect all available context signals.
