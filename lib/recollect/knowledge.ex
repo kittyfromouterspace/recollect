@@ -96,6 +96,13 @@ defmodule Recollect.Knowledge do
     Map.put(metadata, :classification_confidence, confidence)
   end
 
+  defp superseded_half_life(opts) do
+    case Keyword.get(opts, :superseded_half_life) do
+      days when is_number(days) and days > 0 -> days * 1.0
+      _ -> 0.01
+    end
+  end
+
   @doc "Delete a knowledge entry."
   def forget(entry_id) do
     Recollect.Telemetry.span([:recollect, :forget], %{entry_id: entry_id}, fn ->
@@ -205,14 +212,18 @@ defmodule Recollect.Knowledge do
             with {:ok, _edge} <- connect(new_entry_id, old_entry_id, "supersedes") do
               metadata =
                 (old.metadata || %{})
-                |> Map.put("superseded_at", DateTime.utc_now() |> DateTime.to_iso8601())
+                |> Map.put("superseded_at", DateTime.to_iso8601(DateTime.utc_now()))
                 |> Map.put("superseded_by", new_entry_id)
 
               attrs =
                 if Keyword.get(opts, :keep_strength, false) do
                   %{metadata: metadata}
                 else
-                  %{metadata: metadata, half_life_days: 0.0, confidence: 0.0}
+                  # half_life_days: 0.0 is truthy in Elixir and made
+                  # Strength.decay_factor/2 divide by zero (ArithmeticError).
+                  # A small positive half-life expresses "spent" without
+                  # crashing any decay/outcome pass that touches the row.
+                  %{metadata: metadata, half_life_days: superseded_half_life(opts), confidence: 0.0}
                 end
 
               old
@@ -228,6 +239,7 @@ defmodule Recollect.Knowledge do
   Apply supersession: demote old entries matching entity+relation pattern.
   New entry supersedes old ones by setting their confidence to 0.1.
   """
+
   def supersede(scope_id, entity, relation, _new_value) do
     Recollect.Telemetry.span(
       [:recollect, :supersede],

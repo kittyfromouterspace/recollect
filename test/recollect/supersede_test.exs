@@ -28,7 +28,7 @@ defmodule Recollect.SupersedeTest do
       assert {:ok, updated} = Knowledge.supersede(new.id, old.id)
 
       assert updated.confidence == 0.0
-      assert updated.half_life_days == 0.0
+      assert updated.half_life_days == 0.01
       assert updated.metadata["superseded_by"] == new.id
       assert {:ok, _, _} = DateTime.from_iso8601(updated.metadata["superseded_at"])
 
@@ -40,6 +40,26 @@ defmodule Recollect.SupersedeTest do
         )
 
       assert edge
+    end
+
+    test "strength of a superseded entry is a float near zero, not a crash (MEM-008)" do
+      old = Fixtures.entry(content: "old fact", half_life_days: 30.0)
+      new = Fixtures.entry(content: "new fact", scope_id: old.scope_id, owner_id: old.owner_id)
+
+      assert {:ok, superseded} = Knowledge.supersede(new.id, old.id)
+
+      strength = Recollect.Strength.calculate(superseded)
+      assert is_float(strength)
+      assert strength <= 0.01
+    end
+
+    test "superseded_half_life is configurable (MEM-008)" do
+      old = Fixtures.entry(content: "old fact", half_life_days: 30.0)
+      new = Fixtures.entry(content: "new fact", scope_id: old.scope_id, owner_id: old.owner_id)
+
+      assert {:ok, superseded} = Knowledge.supersede(new.id, old.id, superseded_half_life: 2.0)
+      assert superseded.half_life_days == 2.0
+      assert superseded.confidence == 0.0
     end
 
     test "keep_strength: true preserves confidence and half-life" do
@@ -69,7 +89,7 @@ defmodule Recollect.SupersedeTest do
       new = embedded_entry("new deploy fact", scope_id: scope_id, owner_id: owner_id)
 
       {:ok, before} = Vector.search_entries("deploy process", scope_id)
-      assert ids(before) |> Enum.sort() == Enum.sort([old.id, new.id])
+      assert before |> ids() |> Enum.sort() == Enum.sort([old.id, new.id])
 
       {:ok, _} = Knowledge.supersede(new.id, old.id)
 
@@ -87,7 +107,7 @@ defmodule Recollect.SupersedeTest do
       {:ok, _} = Knowledge.supersede(new.id, old.id)
 
       {:ok, results} = Vector.search_entries("deploy process", scope_id, include_superseded: true)
-      assert ids(results) |> Enum.sort() == Enum.sort([old.id, new.id])
+      assert results |> ids() |> Enum.sort() == Enum.sort([old.id, new.id])
     end
 
     test "Graph.follow_edges excludes superseded entries by default" do
@@ -103,7 +123,7 @@ defmodule Recollect.SupersedeTest do
       assert ids(default_related) == [fresh.id]
 
       {:ok, all_related} = Graph.follow_edges([anchor.id], include_superseded: true)
-      assert ids(all_related) |> Enum.sort() == Enum.sort([old.id, fresh.id])
+      assert all_related |> ids() |> Enum.sort() == Enum.sort([old.id, fresh.id])
     end
 
     test "Recollect.search/2 entries exclude superseded by default, opt-in via include_superseded" do
@@ -121,7 +141,7 @@ defmodule Recollect.SupersedeTest do
       {:ok, pack} =
         Recollect.search("deploy process", scope_id: scope_id, tier: :lightweight, include_superseded: true)
 
-      assert ids(pack.entries) |> Enum.sort() == Enum.sort([old.id, new.id])
+      assert pack.entries |> ids() |> Enum.sort() == Enum.sort([old.id, new.id])
     end
   end
 end
