@@ -9,6 +9,7 @@ defmodule Recollect.Knowledge do
   alias Recollect.Classification
   alias Recollect.Config
   alias Recollect.Context.Detector
+  alias Recollect.Guards
   alias Recollect.Pipeline.Embedder
   alias Recollect.Schema.Edge
   alias Recollect.Schema.Entry
@@ -41,53 +42,76 @@ defmodule Recollect.Knowledge do
       tags = Keyword.get(opts, :tags, [])
       scope_id = Keyword.get(opts, :scope_id)
 
-      # Auto-capture context unless explicitly provided
-      context_hints =
-        if opts[:context_hints] do
-          opts[:context_hints]
-        else
-          Detector.detect()
-        end
+      # Engine-level secret guard (MEM-036): content and string metadata are
+      # checked before insert. Hosts that pre-scrub can pass
+      # allow_secrets: true; guards can be disabled via config.
+      metadata_payload = Keyword.get(opts, :metadata, %{})
 
-      # Auto-classify content using LLM-free classification
-      {entry_type, classification_confidence} =
-        if Keyword.get(opts, :auto_classify, false) do
-          Classification.classify(content, context_hints)
-        else
-          {Keyword.get(opts, :entry_type, "note"), nil}
-        end
+      with :ok <- Guards.check(content, opts),
+           :ok <- Guards.check(metadata_payload, opts) do
+        write_entry(content, opts, tags, scope_id, context_hints_for(opts))
+      else
+        {:error, :possible_secret} = error ->
+          require Logger
 
-      base_half_life = Keyword.get(opts, :half_life_days) || 7.0
-      schema_fit = SchemaFit.compute(content, tags, scope_id)
-      adjusted_half_life = Strength.adjust_for_schema_fit(base_half_life, schema_fit)
+          Logger.warning("Recollect.Knowledge: remember rejected — content looks like it contains a credential")
 
-      attrs = %{
-        content: content,
-        scope_id: scope_id,
-        owner_id: Keyword.get(opts, :owner_id),
-        entry_type: to_string(entry_type),
-        summary: Keyword.get(opts, :summary),
-        source: Keyword.get(opts, :source, "system"),
-        source_id: Keyword.get(opts, :source_id),
-        metadata: opts |> Keyword.get(:metadata, %{}) |> maybe_add_classification(classification_confidence),
-        confidence: Keyword.get(opts, :confidence, 1.0),
-        half_life_days: adjusted_half_life,
-        pinned: Keyword.get(opts, :pinned, false),
-        emotional_valence: Atom.to_string(valence),
-        schema_fit: schema_fit,
-        confidence_state: "active",
-        context_hints: context_hints
-      }
-
-      case %Entry{} |> Entry.changeset(attrs) |> repo.insert() do
-        {:ok, entry} ->
-          Embedder.embed_entry_async(entry)
-          {:ok, entry}
-
-        {:error, changeset} ->
-          {:error, changeset}
+          error
       end
     end)
+  end
+
+  defp context_hints_for(opts) do
+    if opts[:context_hints] do
+      opts[:context_hints]
+    else
+      Detector.detect()
+    end
+  end
+
+  defp write_entry(content, opts, tags, scope_id, context_hints) do
+    repo = Config.repo()
+
+    valence = Valence.infer(opts)
+
+    # Auto-classify content using LLM-free classification
+    {entry_type, classification_confidence} =
+      if Keyword.get(opts, :auto_classify, false) do
+        Classification.classify(content, context_hints)
+      else
+        {Keyword.get(opts, :entry_type, "note"), nil}
+      end
+
+    base_half_life = Keyword.get(opts, :half_life_days) || 7.0
+    schema_fit = SchemaFit.compute(content, tags, scope_id)
+    adjusted_half_life = Strength.adjust_for_schema_fit(base_half_life, schema_fit)
+
+    attrs = %{
+      content: content,
+      scope_id: scope_id,
+      owner_id: Keyword.get(opts, :owner_id),
+      entry_type: to_string(entry_type),
+      summary: Keyword.get(opts, :summary),
+      source: Keyword.get(opts, :source, "system"),
+      source_id: Keyword.get(opts, :source_id),
+      metadata: opts |> Keyword.get(:metadata, %{}) |> maybe_add_classification(classification_confidence),
+      confidence: Keyword.get(opts, :confidence, 1.0),
+      half_life_days: adjusted_half_life,
+      pinned: Keyword.get(opts, :pinned, false),
+      emotional_valence: Atom.to_string(valence),
+      schema_fit: schema_fit,
+      confidence_state: "active",
+      context_hints: context_hints
+    }
+
+    case %Entry{} |> Entry.changeset(attrs) |> repo.insert() do
+      {:ok, entry} ->
+        Embedder.embed_entry_async(entry)
+        {:ok, entry}
+
+      {:error, changeset} ->
+        {:error, changeset}
+    end
   end
 
   defp maybe_add_classification(metadata, nil), do: metadata
