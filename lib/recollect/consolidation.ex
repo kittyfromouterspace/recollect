@@ -72,33 +72,48 @@ defmodule Recollect.Consolidation do
 
         conflicts = ConflictDetection.detect(scope_id)
 
-        SchemaIndex.rebuild()
+        if !dry_run do
+          SchemaIndex.rebuild()
+        end
 
         duration_ms =
           System.convert_time_unit(System.monotonic_time() - start_time, :native, :millisecond)
 
-        if !dry_run do
-          persist_consolidation_run(
-            scope_id,
-            owner_id,
-            %{
-              decayed: decay_result.count,
-              removed: length(decay_result.removed),
-              merged: merge_result.merged,
-              semantic_created: merge_result.semantic_created,
-              conflicts_detected: length(conflicts)
-            },
-            duration_ms
-          )
+        removed_count =
+          if dry_run do
+            length(decay_result.removed)
+          else
+            {:ok, archived_count} =
+              repo.transaction(fn ->
+                {:ok, %{archived: archived_count}} =
+                  archive_removed(decay_result.removed, repo)
 
-          persist_conflicts(scope_id, owner_id, conflicts)
+                persist_consolidation_run(
+                  scope_id,
+                  owner_id,
+                  %{
+                    decayed: decay_result.count,
+                    removed: archived_count,
+                    merged: merge_result.merged,
+                    semantic_created: merge_result.semantic_created,
+                    conflicts_detected: length(conflicts)
+                  },
+                  duration_ms
+                )
 
-          create_summary_entries(merge_result.summaries, scope_id, owner_id, repo)
-        end
+                persist_conflicts(scope_id, owner_id, conflicts)
+
+                create_summary_entries(merge_result.summaries, scope_id, owner_id, repo)
+
+                archived_count
+              end)
+
+            archived_count
+          end
 
         %{
           decayed: decay_result.count,
-          removed: length(decay_result.removed),
+          removed: removed_count,
           merged: merge_result.merged,
           semantic_created: merge_result.semantic_created,
           conflicts_detected: length(conflicts),
@@ -140,6 +155,22 @@ defmodule Recollect.Consolidation do
       end)
 
     %{survivors: survivors, removed: removed, count: length(removed)}
+  end
+
+  # Persist the decay decision: archive entries below the threshold instead of
+  # deleting them, so a rollback can restore them by resetting entry_type.
+  defp archive_removed([], _repo), do: {:ok, %{archived: 0}}
+
+  defp archive_removed(entries, repo) do
+    ids = Enum.map(entries, & &1.id)
+
+    {archived, _} =
+      repo.update_all(
+        from(e in Entry, where: e.id in ^ids and e.entry_type != "archived"),
+        set: [entry_type: "archived", updated_at: DateTime.utc_now()]
+      )
+
+    {:ok, %{archived: archived}}
   end
 
   defp merge_pass(entries, threshold, min_cluster, _repo, _scope_id) do

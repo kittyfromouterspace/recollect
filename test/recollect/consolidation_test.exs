@@ -79,4 +79,91 @@ defmodule Recollect.ConsolidationTest do
       assert still_there.entry_type == entry.entry_type
     end
   end
+
+  describe "run/1 decay persistence (MEM-002)" do
+    test "archives entries below the decay threshold and reports the real count" do
+      scope_id = Fixtures.scope_id()
+      owner_id = Fixtures.owner_id()
+
+      stale =
+        Fixtures.entry(%{
+          scope_id: scope_id,
+          owner_id: owner_id,
+          content: "Stale note from months ago.",
+          last_accessed_at: DateTime.add(DateTime.utc_now(), -400, :day)
+        })
+
+      fresh =
+        Fixtures.entry(%{
+          scope_id: scope_id,
+          owner_id: owner_id,
+          content: "Fresh note accessed today."
+        })
+
+      assert {:ok, result} = Consolidation.run(scope_id: scope_id)
+      assert result.removed == 1
+
+      archived = Config.repo().reload!(stale)
+      assert archived.entry_type == "archived"
+
+      kept = Config.repo().reload!(fresh)
+      assert kept.entry_type != "archived"
+
+      {:ok, %{rows: rows}} =
+        Config.repo().query(
+          "SELECT removed FROM recollect_consolidation_runs WHERE scope_id = $1",
+          [Recollect.Util.uuid_to_bin(scope_id)]
+        )
+
+      assert [[removed]] = rows
+      assert removed == 1
+    end
+
+    test "dry_run archives nothing and writes no run record" do
+      scope_id = Fixtures.scope_id()
+      owner_id = Fixtures.owner_id()
+
+      stale =
+        Fixtures.entry(%{
+          scope_id: scope_id,
+          owner_id: owner_id,
+          content: "Stale note that a dry run must not archive.",
+          last_accessed_at: DateTime.add(DateTime.utc_now(), -400, :day)
+        })
+
+      assert {:ok, result} = Consolidation.run(scope_id: scope_id, dry_run: true)
+      assert result.removed == 1
+
+      untouched = Config.repo().reload!(stale)
+      assert untouched.entry_type != "archived"
+
+      {:ok, %{rows: rows}} =
+        Config.repo().query(
+          "SELECT count(*) FROM recollect_consolidation_runs WHERE scope_id = $1",
+          [Recollect.Util.uuid_to_bin(scope_id)]
+        )
+
+      assert [[0]] = rows
+    end
+
+    test "pinned entries survive decay even when ancient" do
+      scope_id = Fixtures.scope_id()
+      owner_id = Fixtures.owner_id()
+
+      pinned =
+        Fixtures.entry(%{
+          scope_id: scope_id,
+          owner_id: owner_id,
+          content: "Ancient but pinned operational rule.",
+          pinned: true,
+          last_accessed_at: DateTime.add(DateTime.utc_now(), -400, :day)
+        })
+
+      assert {:ok, result} = Consolidation.run(scope_id: scope_id)
+      assert result.removed == 0
+
+      kept = Config.repo().reload!(pinned)
+      assert kept.entry_type != "archived"
+    end
+  end
 end
