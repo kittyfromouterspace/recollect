@@ -60,7 +60,7 @@ defmodule Recollect.Search.Vector do
             |> maybe_search_chunks(embedding_str, opts, limit, min_score, tier)
             |> maybe_search_entries(embedding_str, opts, limit, min_score, tier, filters)
             |> maybe_search_summaries(embedding_str, opts, limit, min_score, tier)
-            |> maybe_escalate_to_mipmaps(query_text, opts, limit)
+            |> maybe_escalate_to_mipmaps(query_text, opts, limit, query_embedding)
 
           {:ok, results}
 
@@ -190,13 +190,17 @@ defmodule Recollect.Search.Vector do
 
   defp maybe_search_chunks(acc, _, _, _, _, _), do: acc
 
-  defp maybe_escalate_to_mipmaps(results, query_text, opts, limit) when length(results) < 3 do
+  defp maybe_escalate_to_mipmaps(results, query_text, opts, limit, query_embedding) when length(results) < 3 do
     case Keyword.get(opts, :scope_id) do
       nil ->
         results
 
       scope_id ->
-        case Recollect.Mipmap.retrieve(query_text, scope_id, limit: limit) do
+        # MEM-009: reuse the embedding search already computed for this query.
+        case Recollect.Mipmap.retrieve(query_text, scope_id,
+               limit: limit,
+               query_embedding: query_embedding
+             ) do
           {:ok, mipmap_results, _level} when mipmap_results != [] ->
             existing_ids = MapSet.new(results, fn r -> r["entry_id"] end)
 
@@ -213,7 +217,7 @@ defmodule Recollect.Search.Vector do
     end
   end
 
-  defp maybe_escalate_to_mipmaps(results, _, _, _), do: results
+  defp maybe_escalate_to_mipmaps(results, _, _, _, _), do: results
 
   defp maybe_search_entries(acc, embedding_str, opts, limit, min_score, tier, filters)
        when tier in [:lightweight, :both] do
