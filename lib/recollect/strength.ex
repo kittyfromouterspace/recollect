@@ -19,18 +19,24 @@ defmodule Recollect.Strength do
     decay = decay_factor(entry, at_time)
     retrieval = retrieval_boost(entry)
     emotional = emotional_multiplier(entry)
+    confidence = if is_number(entry.confidence), do: entry.confidence * 1.0, else: 1.0
 
-    min(1.0, max(0.0, decay * retrieval * emotional * entry.confidence))
+    min(1.0, max(0.0, decay * retrieval * emotional * confidence))
   end
 
   defp decay_factor(entry, now) do
-    last = entry.last_accessed_at || entry.inserted_at
-    days = DateTime.diff(now, last, :second) / 86_400.0
+    last = entry.last_accessed_at || entry.inserted_at || now
+    days = max(DateTime.diff(now, last, :second) / 86_400.0, 0.0)
 
-    half_life = entry.half_life_days || 7.0
+    half_life = normalize_half_life(entry.half_life_days)
 
     :math.pow(0.5, days / half_life)
   end
+
+  # A nil or non-positive half-life would raise ArithmeticError (division by
+  # zero) or produce NaN; fall back to the same 7-day default the schema uses.
+  defp normalize_half_life(h) when is_number(h) and h > 0, do: h * 1.0
+  defp normalize_half_life(_), do: 7.0
 
   defp retrieval_boost(%{access_count: count}) when is_integer(count) do
     1 + 0.1 * :math.log2(count + 1)

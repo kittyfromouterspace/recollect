@@ -12,9 +12,12 @@ defmodule Recollect.Consolidation do
   Uses Task.async_stream for CPU-bound operations.
   """
 
+  import Ecto.Query
+
   alias Recollect.Config
   alias Recollect.ConflictDetection
   alias Recollect.Conflicts
+  alias Recollect.Schema.Entry
   alias Recollect.SchemaIndex
   alias Recollect.Strength
   alias Recollect.Telemetry
@@ -107,40 +110,32 @@ defmodule Recollect.Consolidation do
   end
 
   defp fetch_entries(scope_id, repo) do
-    case repo.query(
-           """
-             SELECT id, content, half_life_days, pinned, access_count,
-                    last_accessed_at, inserted_at, confidence, emotional_valence
-             FROM recollect_entries
-             WHERE scope_id = $1 AND entry_type != 'archived'
-           """,
-           [Recollect.Util.uuid_to_bin(scope_id)]
-         ) do
-      {:ok, %{rows: rows, columns: columns}} ->
-        Enum.map(rows, fn row ->
-          Recollect.Util.row_to_map(columns, row)
-        end)
-
-      _ ->
-        []
-    end
+    # Load through the schema so callers get atom-keyed %Entry{} structs with
+    # typed fields (the previous raw SELECT returned string-keyed maps that
+    # struct/2 silently nil'd out).
+    repo.all(
+      from(e in Entry,
+        where: e.scope_id == ^scope_id and e.entry_type != "archived",
+        order_by: [asc: e.id]
+      )
+    )
   end
 
   defp fetch_owner_id(scope_id, repo) do
-    case repo.query("SELECT owner_id FROM recollect_entries WHERE scope_id = $1 LIMIT 1", [
-           Recollect.Util.uuid_to_bin(scope_id)
-         ]) do
-      {:ok, %{rows: [[owner_id]]}} -> owner_id
-      _ -> nil
-    end
+    repo.one(
+      from(e in Entry,
+        where: e.scope_id == ^scope_id,
+        limit: 1,
+        select: e.owner_id
+      )
+    )
   end
 
   defp decay_pass(entries, threshold) do
     now = DateTime.utc_now()
 
     {survivors, removed} =
-      Enum.split_with(entries, fn entry ->
-        entry = struct(Recollect.Schema.Entry, entry)
+      Enum.split_with(entries, fn %Entry{} = entry ->
         entry.pinned || Strength.calculate(entry, now) >= threshold
       end)
 
@@ -163,7 +158,7 @@ defmodule Recollect.Consolidation do
           fn {i, j} ->
             a = Enum.at(entries, i)
             b = Enum.at(entries, j)
-            {i, j, Recollect.Util.text_overlap(a["content"], b["content"])}
+            {i, j, Recollect.Util.text_overlap(a.content, b.content)}
           end,
           max_concurrency: System.schedulers_online(),
           timeout: 30_000
@@ -227,14 +222,14 @@ defmodule Recollect.Consolidation do
   end
 
   defp create_semantic_summary(cluster) do
-    base = Enum.max_by(cluster, fn e -> String.length(e["content"]) end)
+    base = Enum.max_by(cluster, fn e -> String.length(e.content) end)
 
     if length(cluster) <= 2 do
-      "[Consolidated from #{length(cluster)} related memories]\n\n#{base["content"]}"
+      "[Consolidated from #{length(cluster)} related memories]\n\n#{base.content}"
     else
       bullets =
         Enum.map(cluster, fn e ->
-          "- #{e["content"] |> String.split("\n") |> hd() |> String.slice(0, 120)}"
+          "- #{e.content |> String.split("\n") |> hd() |> String.slice(0, 120)}"
         end)
 
       "[Consolidated pattern from #{length(cluster)} related memories]\n\n#{Enum.join(bullets, "\n")}"
@@ -252,9 +247,9 @@ defmodule Recollect.Consolidation do
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       """,
       [
-        Ecto.UUID.generate(),
+        Ecto.UUID.bingenerate(),
         Recollect.Util.uuid_to_bin(scope_id),
-        owner_id,
+        Recollect.Util.uuid_to_bin(owner_id),
         now,
         results.decayed,
         results.removed,
@@ -284,7 +279,13 @@ defmodule Recollect.Consolidation do
             (id, scope_id, owner_id, entry_type, content, confidence, half_life_days, pinned, emotional_valence, schema_fit, confidence_state, inserted_at, updated_at)
           VALUES ($1, $2, $3, 'note', $4, 0.8, 14.0, false, 'neutral', 0.6, 'active', $5, $5)
         """,
-        [Ecto.UUID.generate(), Recollect.Util.uuid_to_bin(scope_id), Recollect.Util.uuid_to_bin(owner_id), summary, now]
+        [
+          Ecto.UUID.bingenerate(),
+          Recollect.Util.uuid_to_bin(scope_id),
+          Recollect.Util.uuid_to_bin(owner_id),
+          summary,
+          now
+        ]
       )
     end
 
