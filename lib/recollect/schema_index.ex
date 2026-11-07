@@ -2,9 +2,19 @@ defmodule Recollect.SchemaIndex do
   @moduledoc """
   ETS table for schema acceleration data.
 
-  Rebuilt during consolidation pass. Read by schema_fit computation on every entry creation.
-  No GenServer owner — public table, written by consolidation, read by everyone.
+  Rebuilt per scope during consolidation. Read by schema_fit computation on
+  every entry creation. No GenServer owner — public table, written by
+  consolidation, read by everyone.
+
+  Keys are `{:tag_frequency, scope_id}` / `{:entry_count, scope_id}`; the
+  `nil` scope_id holds the global aggregate used as a fallback when a scope
+  has not been rebuilt yet.
   """
+
+  import Ecto.Query
+
+  alias Recollect.Schema.Entry
+  alias Recollect.Schema.EntryTag
 
   @table :recollect_schema_index
 
@@ -18,69 +28,99 @@ defmodule Recollect.SchemaIndex do
     ])
   end
 
-  @doc "Rebuild the index from all active entries in the DB."
-  def rebuild do
+  @doc """
+  Rebuild the tag-frequency index for one scope from `recollect_entry_tags`
+  (joined to live entries so archived rows don't count).
+  """
+  def rebuild(scope_id) when is_binary(scope_id) do
     repo = Recollect.Config.repo()
 
-    rows =
-      repo.query("""
-        SELECT content, tags_json FROM recollect_entries WHERE entry_type != 'archived'
-      """)
+    tag_freq =
+      from(t in EntryTag,
+        join: e in Entry,
+        on: e.id == t.entry_id,
+        where: t.scope_id == ^scope_id and e.entry_type != "archived",
+        group_by: t.tag,
+        select: {t.tag, count(t.entry_id)}
+      )
+      |> repo.all()
+      |> Map.new()
 
-    entries =
-      case rows do
-        {:ok, %{rows: rows}} -> rows
-        _ -> []
-      end
+    entry_count =
+      repo.one(
+        from(e in Entry,
+          where: e.scope_id == ^scope_id and e.entry_type != "archived",
+          select: count(e.id)
+        )
+      ) || 0
 
-    tag_freq = build_tag_frequency(entries)
-    entry_count = length(entries)
-
-    :ets.insert(@table, {:tag_frequency, tag_freq})
-    :ets.insert(@table, {:entry_count, entry_count})
+    :ets.insert(@table, {{:tag_frequency, scope_id}, tag_freq})
+    :ets.insert(@table, {{:entry_count, scope_id}, entry_count})
 
     %{tag_clusters: map_size(tag_freq), entry_count: entry_count}
   end
 
-  @doc "Get the tag frequency map. Returns %{} if index is empty."
-  def tag_frequency do
-    case :ets.lookup(@table, :tag_frequency) do
-      [{:tag_frequency, freq}] -> freq
-      [] -> %{}
-    end
+  @doc "Rebuild the global (all-scope) aggregate, used as a fallback."
+  def rebuild do
+    repo = Recollect.Config.repo()
+
+    tag_freq =
+      from(t in EntryTag,
+        join: e in Entry,
+        on: e.id == t.entry_id,
+        where: e.entry_type != "archived",
+        group_by: t.tag,
+        select: {t.tag, count(t.entry_id)}
+      )
+      |> repo.all()
+      |> Map.new()
+
+    entry_count =
+      repo.one(
+        from(e in Entry,
+          where: e.entry_type != "archived",
+          select: count(e.id)
+        )
+      ) || 0
+
+    :ets.insert(@table, {{:tag_frequency, nil}, tag_freq})
+    :ets.insert(@table, {{:entry_count, nil}, entry_count})
+
+    %{tag_clusters: map_size(tag_freq), entry_count: entry_count}
   end
 
-  @doc "Get the total entry count. Returns 0 if index is empty."
-  def entry_count do
-    case :ets.lookup(@table, :entry_count) do
-      [{:entry_count, count}] -> count
-      [] -> 0
-    end
+  @doc """
+  Tag frequency map for a scope, falling back to the global aggregate.
+  Returns %{} if the index is empty.
+  """
+  def tag_frequency(scope_id \\ nil) do
+    scoped_lookup(:tag_frequency, scope_id, %{})
   end
 
-  defp build_tag_frequency(rows) do
-    Enum.reduce(rows, %{}, fn [_content, tags_json], acc ->
-      tags =
-        case tags_json do
-          nil ->
-            []
+  @doc """
+  Live entry count for a scope, falling back to the global aggregate.
+  Returns 0 if the index is empty.
+  """
+  def entry_count(scope_id \\ nil) do
+    scoped_lookup(:entry_count, scope_id, 0)
+  end
 
-          json when is_binary(json) ->
-            case Jason.decode(json) do
-              {:ok, list} when is_list(list) -> list
-              _ -> []
-            end
+  defp scoped_lookup(kind, scope_id, default) do
+    case :ets.lookup(@table, {kind, scope_id}) do
+      [{{^kind, ^scope_id}, value}] -> value
+      [] -> lookup_global(kind, scope_id, default)
+    end
+  rescue
+    # Table not initialized (e.g. tests that never start the app tree)
+    _ -> default
+  end
 
-          list when is_list(list) ->
-            list
+  defp lookup_global(_kind, nil, default), do: default
 
-          _ ->
-            []
-        end
-
-      Enum.reduce(tags, acc, fn tag, acc ->
-        Map.update(acc, tag, 1, &(&1 + 1))
-      end)
-    end)
+  defp lookup_global(kind, _scope_id, default) do
+    case :ets.lookup(@table, {kind, nil}) do
+      [{{^kind, nil}, value}] -> value
+      [] -> default
+    end
   end
 end

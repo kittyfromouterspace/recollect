@@ -84,7 +84,10 @@ defmodule Recollect.Knowledge do
       end
 
     base_half_life = Keyword.get(opts, :half_life_days) || 7.0
-    schema_fit = SchemaFit.compute(content, tags, scope_id)
+    # MEM-006: only the cheap tag fit runs synchronously on the write path;
+    # the content-fit sample refines schema_fit asynchronously after commit.
+    tags = normalize_tags(tags)
+    schema_fit = SchemaFit.compute_tag_fit(tags, scope_id)
     adjusted_half_life = Strength.adjust_for_schema_fit(base_half_life, schema_fit)
 
     attrs = %{
@@ -108,6 +111,7 @@ defmodule Recollect.Knowledge do
     case insert_entry_with_tags(repo, attrs, tags) do
       {:ok, entry} ->
         Embedder.embed_entry_async(entry)
+        SchemaFit.refine_content_fit_async(entry.id, content, scope_id)
         {:ok, entry}
 
       {:error, changeset} ->

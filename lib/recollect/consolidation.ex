@@ -73,7 +73,7 @@ defmodule Recollect.Consolidation do
         conflicts = ConflictDetection.detect(scope_id)
 
         if !dry_run do
-          SchemaIndex.rebuild()
+          SchemaIndex.rebuild(scope_id)
         end
 
         duration_ms =
