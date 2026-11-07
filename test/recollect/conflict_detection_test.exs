@@ -60,14 +60,13 @@ defmodule Recollect.ConflictDetectionTest do
       {:ok, 1} = Conflicts.persist(a.scope_id, a.owner_id, conflicts)
 
       [conflict] = open_conflicts(a.scope_id)
-      conflict_id = Ecto.UUID.load!(conflict["id"])
 
-      assert {:ok, _} = Conflicts.resolve(conflict_id, a.id)
+      assert {:ok, _} = Conflicts.resolve(conflict.id, a.id)
       assert open_conflicts(a.scope_id) == []
 
       # Re-detect the same contradiction: it must come back as open.
       {:ok, 1} = Conflicts.persist(a.scope_id, a.owner_id, ConflictDetection.detect(a.scope_id))
-      assert [%{"status" => "open"}] = open_conflicts(a.scope_id)
+      assert [%{status: "open"}] = open_conflicts(a.scope_id)
 
       # and it is still the same single row
       assert a.scope_id |> Conflicts.list_all() |> elem(1) |> length() == 1

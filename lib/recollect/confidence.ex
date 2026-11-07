@@ -8,6 +8,7 @@ defmodule Recollect.Confidence do
   """
 
   alias Recollect.Config
+  alias Recollect.Schema.Entry
 
   @stale_threshold_days 30
 
@@ -31,26 +32,27 @@ defmodule Recollect.Confidence do
 
   @doc """
   Wake up stale entries when retrieved.
-  Returns number of entries woken up.
+  Returns {:ok, count} of entries woken up.
   """
   def wake_up_stale_entries(entry_ids) when is_list(entry_ids) do
     if entry_ids == [] do
       {:ok, 0}
     else
-      repo = Config.repo()
+      import Ecto.Query
 
-      try do
-        repo.query(
-          """
-            UPDATE recollect_entries
-            SET confidence_state = 'observed', updated_at = $1
-            WHERE id = ANY($2) AND confidence_state = 'stale'
-          """,
-          [DateTime.utc_now(), entry_ids]
+      # Callers hand over raw binaries from search rows; :binary_id wants
+      # string UUIDs.
+      ids = Enum.map(entry_ids, &Recollect.Util.uuid_to_string/1)
+
+      {count, _} =
+        Config.repo().update_all(
+          from(e in Entry,
+            where: e.id in ^ids and e.confidence_state == "stale"
+          ),
+          set: [confidence_state: "observed", updated_at: DateTime.utc_now()]
         )
-      rescue
-        _ -> {:ok, 0}
-      end
+
+      {:ok, count}
     end
   end
 
@@ -58,16 +60,15 @@ defmodule Recollect.Confidence do
   Mark an entry as verified (e.g., after positive outcome feedback).
   """
   def verify(entry_id) do
-    repo = Config.repo()
+    import Ecto.Query
 
-    try do
-      repo.query(
-        "UPDATE recollect_entries SET confidence_state = 'verified', updated_at = $1 WHERE id = $2",
-        [DateTime.utc_now(), entry_id]
+    {count, _} =
+      Config.repo().update_all(
+        from(e in Entry, where: e.id == ^entry_id),
+        set: [confidence_state: "verified", updated_at: DateTime.utc_now()]
       )
-    rescue
-      _ -> {:ok, 0}
-    end
+
+    {:ok, count}
   end
 
   defp days_since_last_access(%{last_accessed_at: nil, inserted_at: inserted_at}) do

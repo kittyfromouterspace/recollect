@@ -54,27 +54,46 @@ defmodule Recollect.Outcome do
   end
 
   defp do_update(entry_ids, delta, score) do
+    import Ecto.Query
+
     repo = Config.repo()
     now = DateTime.utc_now()
-    # Postgres uuid params must be 16-byte binaries; tracker ids may be
-    # UUID strings (e.g. from Ecto-loaded entries).
-    id_bins = Enum.map(entry_ids, &Recollect.Util.uuid_to_bin/1)
 
-    case repo.query(
-           """
-             UPDATE recollect_entries
-             SET half_life_days = GREATEST(1, half_life_days + $1),
-                 outcome_score = $2,
-                 confidence_state = CASE WHEN $2 > 0 THEN 'verified' ELSE 'active' END,
-                 updated_at = $3
-             WHERE id = ANY($4)
-           """,
-           [delta, score, now, id_bins]
-         ) do
-      {:ok, %{num_rows: n}} -> {:ok, n}
-      {:error, _reason} -> {:ok, 0}
+    confidence_state =
+      if score > 0, do: "verified", else: "active"
+
+    # MEM-011: GREATEST is spelled MAX() on SQLite/libSQL; a CASE floor is
+    # identical on both dialects, so no dialect branch is needed. NULL
+    # half_life_days falls to the floor, matching GREATEST(1, NULL) on PG.
+    # Callers hand over raw binaries from search rows / trackers; :binary_id
+    # wants string UUIDs.
+    ids = Enum.map(entry_ids, &Recollect.Util.uuid_to_string/1)
+
+    try do
+      {count, _} =
+        repo.update_all(
+          from(e in Recollect.Schema.Entry,
+            where: e.id in ^ids,
+            update: [
+              set: [
+                half_life_days:
+                  fragment(
+                    "CASE WHEN half_life_days + ? > 1 THEN half_life_days + ? ELSE 1 END",
+                    ^delta,
+                    ^delta
+                  ),
+                outcome_score: ^score,
+                confidence_state: ^confidence_state,
+                updated_at: ^now
+              ]
+            ]
+          ),
+          []
+        )
+
+      {:ok, count}
+    rescue
+      _ -> {:ok, 0}
     end
-  rescue
-    _ -> {:ok, 0}
   end
 end

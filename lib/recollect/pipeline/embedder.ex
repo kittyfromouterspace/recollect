@@ -110,15 +110,22 @@ defmodule Recollect.Pipeline.Embedder do
                   # recollect_entries has no `tags` column: selecting
                   # it failed every time and the rescue below hid it, so mipmaps
                   # were never persisted after an embed.
+                  # Load through the schema (MEM-011): the previous raw
+                  # SELECT used a $1 placeholder on every backend and
+                  # returned a 16-byte binary id; %Entry{} keeps ids as
+                  # strings and runs on any adapter.
                   entry_row =
-                    "SELECT id, content, entry_type, emotional_valence FROM recollect_entries WHERE id = $1"
-                    |> repo.query([Recollect.Util.uuid_to_bin(entry_id)])
-                    |> case do
-                      {:ok, %{rows: [[id, content, entry_type, valence]], columns: _cols}} ->
-                        %{id: id, content: content, entry_type: entry_type, emotional_valence: valence}
-
-                      _ ->
+                    case repo.get(Recollect.Schema.Entry, entry_id) do
+                      nil ->
                         nil
+
+                      e ->
+                        %{
+                          id: e.id,
+                          content: e.content,
+                          entry_type: e.entry_type,
+                          emotional_valence: e.emotional_valence
+                        }
                     end
 
                   if entry_row, do: Recollect.Mipmap.persist_async(entry_row, tags)

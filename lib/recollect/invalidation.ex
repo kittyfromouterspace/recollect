@@ -16,6 +16,8 @@ defmodule Recollect.Invalidation do
       )
   """
 
+  import Ecto.Query
+
   alias Recollect.Config
   alias Recollect.Knowledge
   alias Recollect.Telemetry
@@ -159,53 +161,61 @@ defmodule Recollect.Invalidation do
   end
 
   defp weaken_related(scope_id, from_concept, _to_concept) do
-    # Find entries mentioning the old concept
-    pattern = "%#{from_concept}%"
-
-    repo = Config.repo()
-
-    # Update half-life for matching entries
-    result =
-      repo.query(
-        """
-          UPDATE recollect_entries
-          SET half_life_days = GREATEST(0.5, half_life_days * $1),
-              confidence = GREATEST(0.05, confidence * $1),
-              updated_at = $2
-          WHERE scope_id = $3
-            AND entry_type != 'archived'
-            AND content ILIKE $4
-            AND half_life_days > 0.5
-        """,
-        [@default_weaken_factor, DateTime.utc_now(), Recollect.Util.uuid_to_bin(scope_id), pattern]
-      )
-
-    case result do
-      {:ok, %{num_rows: count}} -> count
-      _ -> 0
-    end
+    # Find entries mentioning the old concept; only entries still above the
+    # half-life floor are worth weakening.
+    weaken_query(scope_id, from_concept, @default_weaken_factor, only_above_floor: true)
   end
 
   defp weaken_matching(scope_id, pattern, factor) do
-    repo = Config.repo()
+    weaken_query(scope_id, pattern, factor, only_above_floor: false)
+  end
 
-    result =
-      repo.query(
-        """
-          UPDATE recollect_entries
-          SET half_life_days = GREATEST(0.5, half_life_days * $1),
-              confidence = GREATEST(0.05, confidence * $1),
-              updated_at = $2
-          WHERE scope_id = $3
-            AND entry_type != 'archived'
-            AND content ILIKE $4
-        """,
-        [factor, DateTime.utc_now(), Recollect.Util.uuid_to_bin(scope_id), "%#{pattern}%"]
+  # MEM-011: was raw GREATEST/ILIKE SQL (Postgres-only). LOWER()+LIKE matches
+  # case-insensitively on both dialects, and CASE replaces GREATEST (which is
+  # spelled MAX() on SQLite/libSQL) so no dialect branch is needed at all.
+  defp weaken_query(scope_id, concept, factor, only_above_floor: only_above_floor) do
+    repo = Config.repo()
+    pattern = "%#{String.downcase(concept)}%"
+    now = DateTime.utc_now()
+
+    query =
+      from(e in Recollect.Schema.Entry,
+        where: e.scope_id == ^scope_id,
+        where: e.entry_type != "archived",
+        where: fragment("LOWER(?) LIKE ?", e.content, ^pattern)
       )
 
-    case result do
-      {:ok, %{num_rows: count}} -> count
-      _ -> 0
-    end
+    query =
+      if only_above_floor do
+        from(e in query, where: e.half_life_days > 0.5)
+      else
+        query
+      end
+
+    {count, _} =
+      repo.update_all(
+        from(e in query,
+          update: [
+            set: [
+              half_life_days:
+                fragment(
+                  "CASE WHEN half_life_days * ? > 0.5 THEN half_life_days * ? ELSE 0.5 END",
+                  ^factor,
+                  ^factor
+                ),
+              confidence:
+                fragment(
+                  "CASE WHEN confidence * ? > 0.05 THEN confidence * ? ELSE 0.05 END",
+                  ^factor,
+                  ^factor
+                ),
+              updated_at: ^now
+            ]
+          ]
+        ),
+        []
+      )
+
+    count
   end
 end

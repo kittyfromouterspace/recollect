@@ -14,12 +14,15 @@ defmodule Recollect.Handoff do
         artifacts: ["lib/auth/user.ex", "lib/auth/token.ex"],
         blockers: ["Waiting on API spec"]
       )
-      
+
       # At start of next session
       {:ok, handoff} = Recollect.Handoff.get(workspace_id)
   """
 
+  import Ecto.Query
+
   alias Recollect.Config
+  alias Recollect.Schema.Handoff, as: HandoffRow
   alias Recollect.Telemetry
 
   @doc """
@@ -48,25 +51,20 @@ defmodule Recollect.Handoff do
       [:recollect, :handoff, :create],
       %{scope_id: scope_id, next_count: length(next), artifacts_count: length(artifacts)},
       fn ->
-        repo.query(
-          """
-            INSERT INTO recollect_handoffs
-              (id, scope_id, session_id, what, next, artifacts, blockers, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-          """,
-          [
-            # Postgres uuid params must be 16-byte binaries, not strings
-            Recollect.Util.uuid_to_bin(Ecto.UUID.generate()),
-            Recollect.Util.uuid_to_bin(scope_id),
-            session_id && Recollect.Util.uuid_to_bin(session_id),
-            what,
-            Jason.encode!(next),
-            Jason.encode!(artifacts),
-            Jason.encode!(blockers),
-            now,
-            now
-          ]
-        )
+        # The list columns are JSON-encoded text — the on-disk contract is
+        # unchanged from the raw-SQL days.
+        %HandoffRow{}
+        |> Ecto.Changeset.change(%{
+          scope_id: scope_id,
+          session_id: session_id,
+          what: what,
+          next: Jason.encode!(next),
+          artifacts: Jason.encode!(artifacts),
+          blockers: Jason.encode!(blockers),
+          created_at: now,
+          updated_at: now
+        })
+        |> repo.insert()
       end
     )
   end
@@ -78,39 +76,18 @@ defmodule Recollect.Handoff do
     repo = Config.repo()
 
     Telemetry.span([:recollect, :handoff, :get], %{scope_id: scope_id}, fn ->
-      case repo.query(
-             """
-               SELECT id, what, next, artifacts, blockers, session_id, created_at
-               FROM recollect_handoffs
-               WHERE scope_id = $1
-               ORDER BY created_at DESC
-               LIMIT 1
-             """,
-             [Recollect.Util.uuid_to_bin(scope_id)]
+      case repo.one(
+             from(h in HandoffRow,
+               where: h.scope_id == ^scope_id,
+               order_by: [desc: h.created_at],
+               limit: 1
+             )
            ) do
-        {:ok,
-         %{
-           rows: [
-             [id, what, next_json, artifacts_json, blockers_json, session_id, created_at] | []
-           ]
-         }} ->
-          handoff = %{
-            id: id,
-            what: what,
-            next: decode_json_or_list(next_json, []),
-            artifacts: decode_json_or_list(artifacts_json, []),
-            blockers: decode_json_or_list(blockers_json, []),
-            session_id: session_id,
-            created_at: created_at
-          }
-
-          {:ok, handoff}
-
-        {:ok, %{rows: []}} ->
+        nil ->
           {:ok, nil}
 
-        {:error, reason} ->
-          {:error, reason}
+        row ->
+          {:ok, to_handoff(row)}
       end
     end)
   end
@@ -121,33 +98,15 @@ defmodule Recollect.Handoff do
   def recent(scope_id, since \\ ~D[2024-01-01]) do
     repo = Config.repo()
 
-    case repo.query(
-           """
-             SELECT id, what, next, artifacts, blockers, created_at
-             FROM recollect_handoffs
-             WHERE scope_id = $1 AND created_at >= $2
-             ORDER BY created_at DESC
-           """,
-           [Recollect.Util.uuid_to_bin(scope_id), since]
-         ) do
-      {:ok, %{rows: rows}} ->
-        handoffs =
-          Enum.map(rows, fn [id, what, next_json, artifacts_json, blockers_json, created_at] ->
-            %{
-              id: id,
-              what: what,
-              next: decode_json_or_list(next_json, []),
-              artifacts: decode_json_or_list(artifacts_json, []),
-              blockers: decode_json_or_list(blockers_json, []),
-              created_at: created_at
-            }
-          end)
+    rows =
+      repo.all(
+        from(h in HandoffRow,
+          where: h.scope_id == ^scope_id and h.created_at >= ^since,
+          order_by: [desc: h.created_at]
+        )
+      )
 
-        {:ok, handoffs}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    {:ok, Enum.map(rows, &to_handoff/1)}
   end
 
   @doc """
@@ -156,22 +115,37 @@ defmodule Recollect.Handoff do
   def cleanup(scope_id, keep: keep_count) do
     repo = Config.repo()
 
-    repo.query(
-      """
-        DELETE FROM recollect_handoffs
-        WHERE scope_id = $1
-          AND id NOT IN (
-            SELECT id FROM recollect_handoffs
-            WHERE scope_id = $1
-            ORDER BY created_at DESC
-            LIMIT $2
-          )
-      """,
-      [Recollect.Util.uuid_to_bin(scope_id), keep_count]
-    )
+    keep_ids =
+      from(h in HandoffRow,
+        where: h.scope_id == ^scope_id,
+        order_by: [desc: h.created_at],
+        limit: ^keep_count,
+        select: h.id
+      )
+
+    {deleted, _} =
+      repo.delete_all(
+        from(h in HandoffRow,
+          where: h.scope_id == ^scope_id and h.id not in subquery(keep_ids)
+        )
+      )
+
+    {:ok, %{deleted: deleted}}
   end
 
   # Private
+
+  defp to_handoff(row) do
+    %{
+      id: row.id,
+      what: row.what,
+      next: decode_json_or_list(row.next, []),
+      artifacts: decode_json_or_list(row.artifacts, []),
+      blockers: decode_json_or_list(row.blockers, []),
+      session_id: Map.get(row, :session_id),
+      created_at: row.created_at
+    }
+  end
 
   defp decode_json_or_list(nil, default), do: default
   defp decode_json_or_list("", _default), do: []

@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19"
+          otp-version: "28"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+
+      - run: mix deps.get
+
+      # mix test aliases ecto.create + ecto.migrate. mix check's format leg
+      # (format --check-formatted across the whole repo) stays OFF until the
+      # pre-existing baseline format drift is fixed on main — the test leg is
+      # the real gate.
+      # A SQLite leg is deliberately absent: the priv/repo test migrations
+      # are PG-only (pgvector execute blocks), so a SQLite leg needs a
+      # generator-based schema bootstrap first (tracked under the
+      # ops-agent-memory family's backend-parity follow-ups).
+      - run: MIX_ENV=test mix test

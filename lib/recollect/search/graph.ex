@@ -2,6 +2,11 @@ defmodule Recollect.Search.Graph do
   @moduledoc """
   Graph-based search using PostgreSQL recursive CTEs.
   Provides neighborhood expansion and relation queries.
+
+  This module is Postgres-only by design: the traversal relies on recursive
+  CTEs with `ANY($N)` array bindings, which have no portable equivalent.
+  There is no dialect branch here — SQLite/libSQL hosts should swap the
+  graph backend (see `Recollect.GraphStore`) instead.
   """
 
   alias Recollect.Config

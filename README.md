@@ -121,6 +121,13 @@ config :recollect, :database_adapter, Recollect.DatabaseAdapter.SQLiteVec
 config :recollect, :database_adapter, Recollect.DatabaseAdapter.LibSQL
 ```
 
+All tiers (entries, tags, mipmaps, consolidation, conflicts, handoffs,
+retrieval counters) run on both Postgres and SQLite/libSQL. The exceptions
+are the two graph modules — `Recollect.Search.Graph` and
+`Recollect.Graph.PostgresGraph` use Postgres recursive CTEs; SQLite hosts
+swap in a `Recollect.GraphStore` implementation. The full matrix lives in
+[docs/architecture.md](docs/architecture.md#backend-feature-matrix-mem-011).
+
 #### Credential Resolution
 
 Recollect never stores API keys. Instead, you provide a `:credentials_fn` that fetches credentials from your app's secret system at runtime. Examples:

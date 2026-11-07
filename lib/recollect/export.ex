@@ -125,21 +125,26 @@ defmodule Recollect.Export do
 
   defp export_table_to_file(file, table, batch_size, opts) do
     repo = Config.repo()
+    adapter = Config.adapter()
 
-    # Build query
+    # Dialect-aware placeholders (MEM-011): import.ex already builds its
+    # INSERTs through adapter.placeholder/1; export now does the same.
+    scope_ph = adapter.placeholder(1)
+    owner_ph = adapter.placeholder(if(opts[:scope_id], do: 2, else: 1))
+
     query =
       case {opts[:scope_id], opts[:owner_id]} do
         {nil, nil} ->
           "SELECT * FROM #{table}"
 
         {_scope_id, nil} ->
-          "SELECT * FROM #{table} WHERE scope_id = $1"
+          "SELECT * FROM #{table} WHERE scope_id = #{scope_ph}"
 
         {nil, _owner_id} ->
-          "SELECT * FROM #{table} WHERE owner_id = $1"
+          "SELECT * FROM #{table} WHERE owner_id = #{owner_ph}"
 
         {_scope_id, _owner_id} ->
-          "SELECT * FROM #{table} WHERE scope_id = $1 AND owner_id = $2"
+          "SELECT * FROM #{table} WHERE scope_id = #{scope_ph} AND owner_id = #{owner_ph}"
       end
 
     params =

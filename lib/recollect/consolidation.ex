@@ -290,28 +290,22 @@ defmodule Recollect.Consolidation do
   end
 
   defp persist_consolidation_run(scope_id, owner_id, results, duration_ms) do
-    repo = Config.repo()
     now = DateTime.utc_now()
 
-    repo.query(
-      """
-        INSERT INTO recollect_consolidation_runs
-          (id, scope_id, owner_id, timestamp, decayed, removed, merged, semantic_created, conflicts_detected, duration_ms)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      """,
-      [
-        Ecto.UUID.bingenerate(),
-        Recollect.Util.uuid_to_bin(scope_id),
-        Recollect.Util.uuid_to_bin(owner_id),
-        now,
-        results.decayed,
-        results.removed,
-        results.merged,
-        results.semantic_created,
-        results.conflicts_detected,
-        duration_ms
-      ]
-    )
+    Config.repo().insert_all(Recollect.Schema.ConsolidationRun, [
+      %{
+        id: Ecto.UUID.generate(),
+        scope_id: scope_id,
+        owner_id: owner_id,
+        timestamp: now,
+        decayed: results.decayed,
+        removed: results.removed,
+        merged: results.merged,
+        semantic_created: results.semantic_created,
+        conflicts_detected: results.conflicts_detected,
+        duration_ms: duration_ms
+      }
+    ])
   end
 
   defp persist_conflicts(_scope_id, _owner_id, []), do: {:ok, 0}
@@ -325,22 +319,26 @@ defmodule Recollect.Consolidation do
   defp create_summary_entries(summaries, scope_id, owner_id, repo) do
     now = DateTime.utc_now()
 
-    for summary <- summaries do
-      repo.query(
-        """
-          INSERT INTO recollect_entries
-            (id, scope_id, owner_id, entry_type, content, confidence, half_life_days, pinned, emotional_valence, schema_fit, confidence_state, inserted_at, updated_at)
-          VALUES ($1, $2, $3, 'note', $4, 0.8, 14.0, false, 'neutral', 0.6, 'active', $5, $5)
-        """,
-        [
-          Ecto.UUID.bingenerate(),
-          Recollect.Util.uuid_to_bin(scope_id),
-          Recollect.Util.uuid_to_bin(owner_id),
-          summary,
-          now
-        ]
-      )
-    end
+    rows =
+      Enum.map(summaries, fn summary ->
+        %{
+          id: Ecto.UUID.generate(),
+          scope_id: scope_id,
+          owner_id: owner_id,
+          entry_type: "note",
+          content: summary,
+          confidence: 0.8,
+          half_life_days: 14.0,
+          pinned: false,
+          emotional_valence: "neutral",
+          schema_fit: 0.6,
+          confidence_state: "active",
+          inserted_at: now,
+          updated_at: now
+        }
+      end)
+
+    repo.insert_all(Entry, rows)
 
     {:ok, length(summaries)}
   end

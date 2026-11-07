@@ -2,6 +2,10 @@ defmodule Recollect.Graph.PostgresGraph do
   @moduledoc """
   Graph store implementation using PostgreSQL recursive CTEs.
   Queries the recollect_entities and recollect_relations tables directly.
+
+  Postgres-only by name and by design — the dialect is the point of this
+  module. Other backends implement `Recollect.GraphStore` and are selected
+  via config.
   """
   @behaviour Recollect.GraphStore
 

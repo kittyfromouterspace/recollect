@@ -221,10 +221,41 @@ Recollect.Supervisor (one_for_one)
 
 ### Retrieval Counter Design
 
-Search hits are O(1) in-memory increments. A single bulk
-`UPDATE ... WHERE id = ANY($1)` flushes to DB every 30 seconds. On graceful
-shutdown, `terminate/2` flushes remaining counters. Tradeoff: up to 30s of
-counter data can be lost on a crash (acceptable for access counts).
+Search hits are O(1) in-memory increments. On Postgres a single bulk
+`UPDATE ... FROM unnest(...)` flushes to DB every 30 seconds; SQLite/libSQL
+flush per row (batches are search-page-sized). On graceful shutdown,
+`terminate/2` flushes remaining counters. Tradeoff: up to 30s of counter
+data can be lost on a crash (acceptable for access counts).
+
+## Backend Feature Matrix (MEM-011)
+
+Everything below runs on PostgreSQL (pgvector) unless marked otherwise.
+SQLite (sqlite-vec) and libSQL share one code path ("SQLite leg") via
+`ecto_sqlite3` / `ecto_libsql`.
+
+| Feature                              | Postgres | SQLite/libSQL |
+|--------------------------------------|----------|---------------|
+| remember/forget/connect + tags       | ✅        | ✅             |
+| Vector search (entries + chunks)     | ✅        | ✅             |
+| Search filters (type/tags/temporal)  | ✅        | ✅             |
+| Mipmaps (persist + retrieve)         | ✅        | ✅             |
+| Consolidation (decay/merge/persist)  | ✅        | ✅             |
+| Conflicts (detect/persist/resolve)   | ✅        | ✅             |
+| Handoffs                             | ✅        | ✅             |
+| Confidence + outcome updates         | ✅        | ✅ (CASE-based floors) |
+| Retrieval counter flush              | ✅ bulk `unnest` | ✅ per-row |
+| Graph search (`Search.Graph`)        | ✅ recursive CTEs | ❌ swap `GraphStore` |
+| `Graph.PostgresGraph` backend        | ✅        | ❌ implement `Recollect.GraphStore` |
+| Import/export                        | ✅        | ✅ (dialect placeholders) |
+
+Two disciplines keep the matrix honest:
+
+- Adapter-agnostic modules are plain Ecto; where SQL fragments are
+  unavoidable, they use portable constructs (`CASE` floors instead of
+  `GREATEST`, `LOWER(...) LIKE` instead of `ILIKE`).
+- `test/recollect/backend_parity_test.exs` fails the build if a bare `$N`
+  placeholder appears outside the allowlisted, dialect-branched modules.
+
 
 ## Configuration Reference
 

@@ -115,8 +115,9 @@ defmodule Recollect.RetrievalCounter do
   # Postgres-first (MEM-007): one bulk UPDATE joining unnest arrays. The
   # previous query ignored the buffered count (+1 per flush) and encoded ids
   # as strings, so the encode error was rescued away and the counters were
-  # then cleared — counts were silently lost. SQLite/libSQL parity lands with
-  # the backend-parity ticket; until then we fail loudly instead of dropping.
+  # then cleared — counts were silently lost. SQLite/libSQL take a per-row
+  # path (MEM-011); flush batches are search-page-sized, so N small UPDATEs
+  # are fine — and a failure keeps the counters buffered either way.
   defp apply_counts(entries, boost_days, max_half_life, now) do
     adapter = Config.adapter()
 
@@ -146,8 +147,42 @@ defmodule Recollect.RetrievalCounter do
         {:error, reason} -> {:error, reason}
       end
     else
-      {:error, :unsupported_backend}
+      apply_counts_per_row(entries, boost_days, max_half_life, now)
     end
+  end
+
+  # SQLite/libSQL: no unnest, LEAST is scalar MIN. One UPDATE per entry.
+  defp apply_counts_per_row(entries, boost_days, max_half_life, now) do
+    import Ecto.Query
+
+    repo = Config.repo()
+
+    Enum.reduce_while(entries, :ok, fn {id, count}, :ok ->
+      try do
+        boost = boost_days * count
+        # ETS keys may be raw binaries (search rows); :binary_id wants strings.
+        id = Recollect.Util.uuid_to_string(id)
+
+        repo.update_all(
+          from(e in Recollect.Schema.Entry,
+            where: e.id == ^id,
+            update: [
+              inc: [access_count: ^count],
+              set: [
+                half_life_days: fragment("MIN(?, COALESCE(half_life_days, 7.0) + ?)", ^max_half_life, ^boost),
+                last_accessed_at: ^now,
+                updated_at: ^now
+              ]
+            ]
+          ),
+          []
+        )
+
+        {:cont, :ok}
+      rescue
+        error -> {:halt, {:error, error}}
+      end
+    end)
   end
 
   defp schedule_flush(interval) do
