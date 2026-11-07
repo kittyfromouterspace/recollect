@@ -22,7 +22,10 @@ defmodule Recollect.RetrievalCounter do
 
   @doc "Increment retrieval counter for an entry. O(1) operation."
   def bump(entry_id) do
-    :ets.update_counter(@table, entry_id, {2, 1, 1, 1})
+    # The {pos, incr, threshold, setvalue} tuple form FAILS on a missing key
+    # (and the old rescue swallowed it, so every first bump was silently
+    # dropped). The 4-arg form inserts the default object when missing.
+    :ets.update_counter(@table, entry_id, 1, {entry_id, 0})
   rescue
     _ -> :ok
   end
@@ -38,6 +41,17 @@ defmodule Recollect.RetrievalCounter do
       [{^entry_id, count}] -> count
       [] -> 0
     end
+  end
+
+  @doc """
+  Flush buffered retrieval counts to the database immediately.
+
+  Useful for maintenance tasks and tests; the GenServer also flushes on its
+  configured interval and on shutdown.
+  """
+  def flush do
+    do_flush()
+    :ok
   end
 
   @impl true
@@ -77,30 +91,62 @@ defmodule Recollect.RetrievalCounter do
     if entries != [] do
       now = DateTime.utc_now()
 
-      boost_days =
-        :recollect
-        |> Application.get_env(:retrieval_strengthening, [])
-        |> Keyword.get(:half_life_boost_days, 2)
+      strengthening = Application.get_env(:recollect, :retrieval_strengthening, [])
 
-      ids = Enum.map(entries, fn {id, _count} -> id end)
+      boost_days = Keyword.get(strengthening, :half_life_boost_days, 2)
+      max_half_life = Keyword.get(strengthening, :max_half_life_days, 365)
 
-      try do
-        Config.repo().query(
-          """
-            UPDATE recollect_entries
-            SET access_count = access_count + 1,
-                half_life_days = half_life_days + $1,
-                last_accessed_at = $2,
-                updated_at = $2
-            WHERE id = ANY($3)
-          """,
-          [boost_days, now, ids]
-        )
-      rescue
-        _ -> :ok
+      case apply_counts(entries, boost_days, max_half_life, now) do
+        :ok ->
+          # Clear only after a successful flush so a failed attempt retries
+          # with the counts still buffered.
+          :ets.delete_all_objects(@table)
+
+        {:error, reason} ->
+          require Logger
+
+          Logger.warning(
+            "Recollect.RetrievalCounter: flush failed (#{inspect(reason)}); retaining #{length(entries)} counters"
+          )
       end
+    end
+  end
 
-      :ets.delete_all_objects(@table)
+  # Postgres-first (MEM-007): one bulk UPDATE joining unnest arrays. The
+  # previous query ignored the buffered count (+1 per flush) and encoded ids
+  # as strings, so the encode error was rescued away and the counters were
+  # then cleared — counts were silently lost. SQLite/libSQL parity lands with
+  # the backend-parity ticket; until then we fail loudly instead of dropping.
+  defp apply_counts(entries, boost_days, max_half_life, now) do
+    adapter = Config.adapter()
+
+    if adapter.dialect() == :postgres do
+      # Order pairs so ETS clearing and the UPDATE stay consistent.
+      pairs =
+        entries
+        |> Enum.map(fn {id, count} -> {Recollect.Util.uuid_to_bin(id), count} end)
+        |> Enum.sort()
+
+      ids = Enum.map(pairs, fn {id, _count} -> id end)
+      counts = Enum.map(pairs, fn {_id, count} -> count end)
+
+      case Config.repo().query(
+             """
+               UPDATE recollect_entries AS e
+               SET access_count = e.access_count + v.count,
+                   half_life_days = LEAST($4, COALESCE(e.half_life_days, 7.0) + $1 * v.count),
+                   last_accessed_at = $2,
+                   updated_at = $2
+               FROM unnest($3::uuid[], $5::int[]) AS v(id, count)
+               WHERE e.id = v.id
+             """,
+             [boost_days, now, ids, max_half_life, counts]
+           ) do
+        {:ok, _} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :unsupported_backend}
     end
   end
 
