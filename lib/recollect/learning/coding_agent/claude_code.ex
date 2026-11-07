@@ -184,7 +184,10 @@ defmodule Recollect.Learner.CodingAgent.ClaudeCode do
 
   defp fetch_project(project_path, since) do
     project = Path.basename(project_path)
-    project_since = Map.get(since, project) || Map.get(since, to_string(project))
+    # Per-project timestamp wins; "*" is the global fallback a unified
+    # learner passes when it only has one since value (MEM-012).
+    project_since =
+      Map.get(since, project) || Map.get(since, to_string(project)) || Map.get(since, "*")
 
     fetch_memory_files(project_path, project, project_since) ++
       fetch_claude_md(project_path, project, project_since) ++

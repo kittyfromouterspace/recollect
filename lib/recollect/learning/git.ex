@@ -83,6 +83,10 @@ defmodule Recollect.Learner.Git do
   end
 
   @impl true
+  def source_id(%{metadata: %{commit_sha: sha}}) when is_binary(sha), do: "git:commit:#{sha}"
+  def source_id(_extract), do: nil
+
+  @impl true
   def detect_patterns(commits) do
     # Detect migration patterns
     commits

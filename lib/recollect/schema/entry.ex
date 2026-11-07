@@ -36,6 +36,10 @@ defmodule Recollect.Schema.Entry do
     # paths (preload :entry_tags). Never persisted on the entries row itself.
     field(:tags, {:array, :string}, virtual: true, default: [])
 
+    # Virtual: set by Knowledge.remember/2's dedupe path so callers can tell
+    # "newly inserted" from "already knew this" without a second query.
+    field(:dedupe_status, :string, virtual: true)
+
     has_many(:entry_tags, Recollect.Schema.EntryTag)
 
     timestamps()

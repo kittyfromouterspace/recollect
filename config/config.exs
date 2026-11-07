@@ -15,6 +15,13 @@ config :recollect, Recollect.TestRepo,
 
 config :recollect, ecto_repos: [Recollect.TestRepo]
 
+# The library's own test/dev runs never scan the developer's real coding-agent
+# transcripts: the learning pipeline's default sources are pinned to Git (the
+# checkout itself is the fixture). CodingAgent is exercised directly in
+# coding_agent_test.exs. Library config does not propagate to host apps.
+config :recollect,
+  learning: [sources: [Recollect.Learner.Git]]
+
 config :recollect,
   repo: Recollect.TestRepo,
   embedding: [provider: Recollect.Embedding.Mock, mock: true],

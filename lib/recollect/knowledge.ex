@@ -37,9 +37,6 @@ defmodule Recollect.Knowledge do
     }
 
     Recollect.Telemetry.span([:recollect, :remember], metadata, fn ->
-      repo = Config.repo()
-
-      valence = Valence.infer(opts)
       tags = Keyword.get(opts, :tags, [])
       scope_id = Keyword.get(opts, :scope_id)
 
@@ -107,7 +104,7 @@ defmodule Recollect.Knowledge do
       context_hints: context_hints
     }
 
-    case insert_entry_with_tags(repo, attrs, tags) do
+    case insert_entry_with_tags(repo, attrs, tags, Keyword.get(opts, :dedupe, :skip)) do
       {:ok, entry} ->
         Embedder.embed_entry_async(entry)
         SchemaFit.refine_content_fit_async(entry.id, content, scope_id)
@@ -121,7 +118,13 @@ defmodule Recollect.Knowledge do
   # Entry + tags commit together (MEM-005): a remember that stores the row
   # but drops the tags is the bug this replaces. Validation failures roll the
   # transaction back into the usual {:error, changeset} — never a raise.
-  defp insert_entry_with_tags(repo, attrs, tags) do
+  #
+  # :dedupe (MEM-012) applies when source_id is set and the partial unique
+  # index recollect_entries_source_source_id_unique fires:
+  #   :skip   — return the existing entry unchanged (default)
+  #   :update — refresh content/summary/metadata/updated_at of the existing
+  #   :error  — return {:error, :duplicate}
+  defp insert_entry_with_tags(repo, attrs, tags, dedupe) do
     repo.transaction(fn ->
       case %Entry{} |> Entry.changeset(attrs) |> repo.insert() do
         {:ok, entry} ->
@@ -145,6 +148,51 @@ defmodule Recollect.Knowledge do
           repo.rollback(changeset)
       end
     end)
+  rescue
+    e in Ecto.ConstraintError ->
+      if unique_source_conflict?(e) do
+        resolve_duplicate(repo, attrs, normalize_tags(tags), dedupe)
+      else
+        reraise e, __STACKTRACE__
+      end
+  end
+
+  defp unique_source_conflict?(%Ecto.ConstraintError{constraint: constraint}) do
+    constraint == "recollect_entries_source_source_id_unique"
+  end
+
+  defp resolve_duplicate(repo, attrs, tags, dedupe) do
+    existing = repo.get_by(Entry, source: attrs.source, source_id: attrs.source_id)
+
+    case {existing, dedupe} do
+      {nil, _} ->
+        # The constraint fired but the row isn't visible (concurrent delete):
+        # surface the conflict rather than silently losing the write.
+        {:error, :duplicate}
+
+      {%Entry{} = entry, :skip} ->
+        {:ok, %{entry | dedupe_status: "skipped"}}
+
+      {%Entry{} = entry, :update} ->
+        entry
+        |> Entry.changeset(%{
+          content: attrs.content,
+          summary: attrs.summary,
+          metadata: attrs.metadata
+        })
+        |> repo.update()
+        |> case do
+          {:ok, updated} ->
+            if tags != [], do: set_tags(entry.id, tags)
+            {:ok, %{updated | tags: tags, dedupe_status: "updated"}}
+
+          {:error, changeset} ->
+            {:error, changeset}
+        end
+
+      {%Entry{}, :error} ->
+        {:error, :duplicate}
+    end
   end
 
   @doc """

@@ -86,6 +86,16 @@ defmodule Recollect.Learner do
   """
   @callback summarize(events :: [map()], scope_id :: binary()) :: [map()]
 
+  @doc """
+  Stable identity for an extract (optional).
+
+  Returned value becomes the entry's `source_id`; combined with the partial
+  unique index on `(source, source_id)` it makes re-running a learner
+  idempotent (MEM-012). Return nil for extracts with no stable identity —
+  the pipeline falls back to a content hash.
+  """
+  @callback source_id(extract :: map()) :: String.t() | nil
+
   @type extract :: %{
           required(:content) => binary(),
           required(:entry_type) => atom(),
@@ -102,6 +112,7 @@ defmodule Recollect.Learner do
 
   @optional_callbacks [
     detect_patterns: 1,
-    summarize: 2
+    summarize: 2,
+    source_id: 1
   ]
 end

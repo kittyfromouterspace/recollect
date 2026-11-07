@@ -115,16 +115,8 @@ defmodule Recollect.Learning.Pipeline do
               if dry_run do
                 {[extract | learned], skipped}
               else
-                case Knowledge.remember(extract.content,
-                       entry_type: extract.entry_type,
-                       emotional_valence: extract.emotional_valence,
-                       tags: extract.tags,
-                       metadata: Map.put(extract.metadata, :learned_from, source),
-                       source: "system"
-                     ) do
-                  {:ok, _} -> {[extract | learned], skipped}
-                  _ -> {learned, skipped}
-                end
+                remember_extract(learner_module, extract, scope_id)
+                |> learned_or_skipped({learned, skipped}, extract)
               end
 
             {:skip, _reason}, {learned, skipped} ->
@@ -146,16 +138,8 @@ defmodule Recollect.Learning.Pipeline do
               if dry_run do
                 {[extract | l], s}
               else
-                case Knowledge.remember(extract.content,
-                       entry_type: Map.get(extract, :entry_type, :note),
-                       emotional_valence: Map.get(extract, :emotional_valence, :neutral),
-                       tags: Map.get(extract, :tags, []),
-                       metadata: Map.put(Map.get(extract, :metadata, %{}), :learned_from, source),
-                       source: "system"
-                     ) do
-                  {:ok, _} -> {[extract | l], s}
-                  _ -> {l, s}
-                end
+                remember_extract(learner_module, extract, scope_id)
+                |> learned_or_skipped({l, s}, extract)
               end
             end)
           else
@@ -175,5 +159,53 @@ defmodule Recollect.Learning.Pipeline do
       {:error, reason} ->
         {source, %{fetched: 0, learned: 0, skipped: 0, error: inspect(reason)}}
     end
+  end
+
+  # MEM-012: every learned entry carries a stable source_id so re-runs dedupe
+  # against the (source, source_id) unique index instead of duplicating.
+  # Learners with event identity (commit sha, session id) supply it via the
+  # source_id/1 callback; anything else falls back to a content hash.
+  #
+  # The pipeline also learned entries into the VOID for its whole life —
+  # scope_id was never passed, so learned knowledge was invisible to scope
+  # search. Both paths pass it now.
+  defp remember_extract(learner_module, extract, scope_id) do
+    Knowledge.remember(extract.content,
+      entry_type: Map.get(extract, :entry_type, :note),
+      emotional_valence: Map.get(extract, :emotional_valence, :neutral),
+      tags: Map.get(extract, :tags, []),
+      metadata: Map.put(Map.get(extract, :metadata, %{}), :learned_from, learner_module.source()),
+      source: "system",
+      source_id: extract_source_id(learner_module, extract),
+      scope_id: scope_id,
+      dedupe: :skip
+    )
+  end
+
+  # Dedupe-skipped extracts count as skipped, not learned.
+  defp learned_or_skipped({:ok, %{dedupe_status: "skipped"}}, {learned, skipped}, _extract),
+    do: {learned, [skipped]}
+
+  defp learned_or_skipped({:ok, _entry}, {learned, skipped}, extract),
+    do: {[extract | learned], skipped}
+
+  defp learned_or_skipped(_error, {learned, skipped}, _extract), do: {learned, skipped}
+
+  defp extract_source_id(learner_module, extract) do
+    from_callback =
+      if function_exported?(learner_module, :source_id, 1) do
+        learner_module.source_id(extract)
+      end
+
+    from_callback || content_source_id(learner_module, extract)
+  end
+
+  defp content_source_id(learner_module, extract) do
+    hash =
+      :crypto.hash(:sha256, extract.content)
+      |> Base.encode16(case: :lower)
+      |> binary_part(0, 16)
+
+    "#{learner_module.source()}:#{hash}"
   end
 end

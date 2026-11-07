@@ -310,6 +310,10 @@ defmodule Recollect.MigrationGenerator do
     create index(:#{prefix}entries, [:scope_id])
     create index(:#{prefix}entries, [:owner_id])
     create index(:#{prefix}entries, [:scope_id, :last_accessed_at])
+    create unique_index(:#{prefix}entries, [:source, :source_id],
+      name: :"#{prefix}entries_source_source_id_unique",
+      where: "source_id IS NOT NULL"
+    )
 
     #{generate_vector_index(adapter, "#{prefix}entries", :embedding, dimensions)}
 

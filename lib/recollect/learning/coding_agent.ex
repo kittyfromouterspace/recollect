@@ -44,13 +44,22 @@ defmodule Recollect.Learner.CodingAgent do
   def source, do: :coding_agents
 
   @impl true
-  def fetch_since(_since, scope_id) do
+  def fetch_since(since, scope_id) do
     start_time = System.monotonic_time()
+
+    # Thread the caller's since through to the providers (MEM-012) instead of
+    # re-reading every transcript on every run. Providers take a per-project
+    # map of slug => ISO8601; "*" is the global fallback.
+    since_map =
+      case Recollect.Learner.CodingAgent.Util.parse_since(since) do
+        nil -> %{}
+        dt -> %{"*" => DateTime.to_iso8601(dt)}
+      end
 
     events =
       provider_configs()
       |> Enum.filter(fn {mod, config} -> mod.available?(config) end)
-      |> Enum.flat_map(fn {mod, config} -> mod.fetch_events(config) end)
+      |> Enum.flat_map(fn {mod, config} -> mod.fetch_events(config, since: since_map) end)
 
     duration =
       System.convert_time_unit(System.monotonic_time() - start_time, :native, :millisecond)
@@ -74,6 +83,27 @@ defmodule Recollect.Learner.CodingAgent do
       {:skip, "unknown agent: #{event.agent}"}
     end
   end
+
+  @impl true
+  def source_id(%{metadata: metadata}) when is_map(metadata) do
+    source = Map.get(metadata, :source) || "agent"
+
+    cond do
+      is_binary(metadata[:source_id]) ->
+        metadata[:source_id]
+
+      is_binary(metadata[:session_id]) ->
+        "#{source}:session:#{metadata[:session_id]}"
+
+      is_binary(metadata[:path]) ->
+        "#{source}:file:#{metadata[:path]}"
+
+      true ->
+        nil
+    end
+  end
+
+  def source_id(_extract), do: nil
 
   @impl true
   def detect_patterns(_events), do: []

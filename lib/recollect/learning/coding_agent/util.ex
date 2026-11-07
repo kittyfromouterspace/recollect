@@ -150,6 +150,46 @@ defmodule Recollect.Learner.CodingAgent.Util do
     end
   end
 
+  @doc """
+  Normalize a `since` value to a UTC DateTime.
+
+  Accepts a DateTime (passed through), an ISO8601 string, or a relative
+  string like "7 days ago" / "30 minutes ago" (MEM-012). Returns nil for
+  nil or anything unparseable — callers treat nil as "no time filter".
+  """
+  def parse_since(nil), do: nil
+  def parse_since(%DateTime{} = dt), do: dt
+
+  def parse_since(str) when is_binary(str) do
+    case DateTime.from_iso8601(str) do
+      {:ok, dt, _} ->
+        dt
+
+      _ ->
+        parse_relative_since(str)
+    end
+  end
+
+  defp parse_relative_since(str) do
+    case Regex.run(~r/^\s*(\d+)\s+(second|minute|hour|day|week|month)s?\s+ago\s*$/i, str) do
+      [_, amount, unit] ->
+        seconds =
+          case String.downcase(unit) do
+            "second" -> 1
+            "minute" -> 60
+            "hour" -> 3600
+            "day" -> 86_400
+            "week" -> 604_800
+            "month" -> 2_592_000
+          end
+
+        DateTime.add(DateTime.utc_now(), -String.to_integer(amount) * seconds, :second)
+
+      _ ->
+        nil
+    end
+  end
+
   @doc false
   def mtime_to_datetime({{y, m, d}, {h, min, s}}) do
     {:ok, ndt} = NaiveDateTime.new(y, m, d, h, min, s)
