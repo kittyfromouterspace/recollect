@@ -83,61 +83,73 @@ defmodule Recollect.Pipeline.Embedder do
 
   @doc "Embed a single entry asynchronously. No-op if embedding is disabled."
   def embed_entry_async(%{id: entry_id, content: content}) when is_binary(content) do
-    if !Config.embedding_enabled?(), do: throw(:disabled)
+    # MEM-035: enrichment is best-effort and commit-first. The entry row is
+    # already written when this runs, so "embeddings disabled" is a skip, not
+    # a throw — the old throw(:disabled) escaped remember/2 and every host
+    # had to wrap calls in catch :disabled.
+    if Config.embedding_enabled?() do
+      Task.Supervisor.start_child(
+        Config.task_supervisor(),
+        fn ->
+          start_time = System.monotonic_time()
+          model_id = EmbeddingProvider.model_id()
 
-    Task.Supervisor.start_child(
-      Config.task_supervisor(),
-      fn ->
-        start_time = System.monotonic_time()
-        model_id = EmbeddingProvider.model_id()
+          result =
+            case EmbeddingProvider.embed(content) do
+              {:ok, embedding} ->
+                store_embedding(Config.repo(), "recollect_entries", entry_id, embedding, model_id)
 
-        result =
-          case EmbeddingProvider.embed(content) do
-            {:ok, embedding} ->
-              store_embedding(Config.repo(), "recollect_entries", entry_id, embedding, model_id)
+                try do
+                  repo = Config.repo()
 
-              try do
-                repo = Config.repo()
+                  # recollect_entries has no `tags` column (never had one): selecting
+                  # it failed every time and the rescue below hid it, so mipmaps
+                  # were never persisted after an embed.
+                  entry =
+                    "SELECT id, content, entry_type, emotional_valence FROM recollect_entries WHERE id = $1"
+                    |> repo.query([Recollect.Util.uuid_to_bin(entry_id)])
+                    |> case do
+                      {:ok, %{rows: [[id, content, entry_type, valence]], columns: _cols}} ->
+                        %{id: id, content: content, entry_type: entry_type, tags: [], emotional_valence: valence}
 
-                # recollect_entries has no `tags` column (never had one): selecting
-                # it failed every time and the rescue below hid it, so mipmaps
-                # were never persisted after an embed.
-                entry =
-                  "SELECT id, content, entry_type, emotional_valence FROM recollect_entries WHERE id = $1"
-                  |> repo.query([Recollect.Util.uuid_to_bin(entry_id)])
-                  |> case do
-                    {:ok, %{rows: [[id, content, entry_type, valence]], columns: _cols}} ->
-                      %{id: id, content: content, entry_type: entry_type, tags: [], emotional_valence: valence}
+                      _ ->
+                        nil
+                    end
 
-                    _ ->
-                      nil
-                  end
+                  if entry, do: Recollect.Mipmap.persist_async(entry)
+                rescue
+                  _ -> :ok
+                end
 
-                if entry, do: Recollect.Mipmap.persist_async(entry)
-              rescue
-                _ -> :ok
-              end
+              {:error, reason} ->
+                Logger.warning("Recollect.Embedder: entry embedding failed for #{entry_id}: #{inspect(reason)}")
+            end
 
-            {:error, reason} ->
-              Logger.warning("Recollect.Embedder: entry embedding failed for #{entry_id}: #{inspect(reason)}")
-          end
+          duration = System.monotonic_time() - start_time
 
-        duration = System.monotonic_time() - start_time
+          Recollect.Telemetry.event([:recollect, :embed, :stop], %{
+            duration: duration,
+            count: 1,
+            provider: Config.embedding_provider()
+          })
 
-        Recollect.Telemetry.event([:recollect, :embed, :stop], %{
-          duration: duration,
-          count: 1,
-          provider: Config.embedding_provider()
-        })
+          result
+        end,
+        restart: :temporary
+      )
+    else
+      require Logger
 
-        result
-      end,
-      restart: :temporary
-    )
-  rescue
-    _ -> :ok
-  catch
-    :disabled -> :ok
+      Logger.debug("Recollect.Embedder: embeddings disabled; entry stored without embedding")
+
+      :telemetry.execute(
+        [:recollect, :embed, :skipped],
+        %{count: 1},
+        %{reason: :disabled, entry_id: entry_id}
+      )
+
+      :ok
+    end
   end
 
   def embed_entry_async(_), do: :ok

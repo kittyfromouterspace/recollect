@@ -59,8 +59,10 @@ defmodule Recollect.Config do
   The host application must configure a provider via `config :recollect`.
   """
   def embedding_provider do
-    config = Application.get_env(:recollect, :embedding, [])
-    Keyword.get(config, :provider)
+    case Application.get_env(:recollect, :embedding, []) do
+      config when is_list(config) -> Keyword.get(config, :provider)
+      _ -> nil
+    end
   end
 
   @doc """
@@ -72,25 +74,29 @@ defmodule Recollect.Config do
   Returns `:disabled` if no credentials are available.
   """
   def embedding_credentials do
-    config = Application.get_env(:recollect, :embedding, [])
+    case Application.get_env(:recollect, :embedding, []) do
+      config when is_list(config) ->
+        case Keyword.get(config, :credentials_fn) do
+          fun when is_function(fun, 0) ->
+            fun.()
 
-    case Keyword.get(config, :credentials_fn) do
-      fun when is_function(fun, 0) ->
-        fun.()
+          nil ->
+            static_opts = Keyword.drop(config, [:provider, :credentials_fn])
 
-      nil ->
-        static_opts = Keyword.drop(config, [:provider, :credentials_fn])
+            cond do
+              Keyword.get(static_opts, :api_key) ->
+                static_opts |> Map.new() |> Map.put(:api_key, Keyword.get(static_opts, :api_key))
 
-        cond do
-          Keyword.get(static_opts, :api_key) ->
-            static_opts |> Map.new() |> Map.put(:api_key, Keyword.get(static_opts, :api_key))
+              Keyword.get(static_opts, :mock) == true ->
+                Map.new(static_opts)
 
-          Keyword.get(static_opts, :mock) == true ->
-            Map.new(static_opts)
-
-          true ->
-            :disabled
+              true ->
+                :disabled
+            end
         end
+
+      _ ->
+        :disabled
     end
   end
 
@@ -111,14 +117,18 @@ defmodule Recollect.Config do
 
   @doc "Extraction provider module (implements Recollect.ExtractionProvider)."
   def extraction_provider do
-    config = Application.get_env(:recollect, :extraction, [])
-    Keyword.get(config, :provider, LlmJson)
+    case Application.get_env(:recollect, :extraction, []) do
+      config when is_list(config) -> Keyword.get(config, :provider, LlmJson)
+      _ -> LlmJson
+    end
   end
 
   @doc "Extraction provider options (includes llm_fn from host app)."
   def extraction_opts do
-    config = Application.get_env(:recollect, :extraction, [])
-    Keyword.delete(config, :provider)
+    case Application.get_env(:recollect, :extraction, []) do
+      opts when is_list(opts) -> Keyword.delete(opts, :provider)
+      _ -> []
+    end
   end
 
   @doc "Embedding vector dimensions (resolved from credentials, static config, or provider default)."
