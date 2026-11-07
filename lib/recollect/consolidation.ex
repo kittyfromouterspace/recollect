@@ -177,9 +177,14 @@ defmodule Recollect.Consolidation do
     if length(entries) < 2 do
       %{merged: 0, semantic_created: 0, summaries: [], cluster_indices: []}
     else
+      # Tuple-ize once: Enum.at/2 on a list inside the O(n^2) pair loop made
+      # pair generation O(n^3).
+      entries_t = List.to_tuple(entries)
+      n = tuple_size(entries_t)
+
       pairs =
-        for i <- 0..(length(entries) - 2),
-            j <- (i + 1)..(length(entries) - 1) do
+        for i <- 0..(n - 2),
+            j <- (i + 1)..(n - 1) do
           {i, j}
         end
 
@@ -187,8 +192,8 @@ defmodule Recollect.Consolidation do
         pairs
         |> Task.async_stream(
           fn {i, j} ->
-            a = Enum.at(entries, i)
-            b = Enum.at(entries, j)
+            a = elem(entries_t, i)
+            b = elem(entries_t, j)
             {i, j, Recollect.Util.text_overlap(a.content, b.content)}
           end,
           max_concurrency: System.schedulers_online(),
@@ -199,7 +204,7 @@ defmodule Recollect.Consolidation do
           _ -> []
         end)
 
-      clusters = build_clusters(overlaps, length(entries))
+      clusters = build_clusters(overlaps, n)
 
       valid_clusters = Enum.filter(clusters, fn indices -> length(indices) >= min_cluster end)
 
@@ -208,13 +213,14 @@ defmodule Recollect.Consolidation do
           []
         else
           Enum.map(valid_clusters, fn indices ->
-            cluster = Enum.map(indices, &Enum.at(entries, &1))
+            cluster = Enum.map(indices, &elem(entries_t, &1))
             create_semantic_summary(cluster)
           end)
         end
 
+      # `merged` counts clusters merged, not the flattened member count.
       %{
-        merged: length(List.flatten(valid_clusters)),
+        merged: length(valid_clusters),
         semantic_created: length(summaries),
         summaries: summaries,
         cluster_indices: valid_clusters
@@ -222,34 +228,50 @@ defmodule Recollect.Consolidation do
     end
   end
 
+  # Union-find over node indices. Nodes joined by an overlapping pair land in
+  # the same cluster; grouping must use the *root* of each node (with the
+  # parent map fully unioned), not the raw parent value — grouping by raw
+  # parent splits chains (0 -> 1 -> 2) into phantom sub-clusters.
   defp build_clusters(overlaps, n) do
     parent =
-      Enum.reduce(0..(n - 1), %{}, fn i, acc -> Map.put(acc, i, i) end)
+      Enum.reduce(overlaps, Map.new(0..(n - 1), fn i -> {i, i} end), fn {i, j}, acc ->
+        root_i = uf_find(acc, i)
+        root_j = uf_find(acc, j)
 
-    find = fn find_fn, node ->
-      case parent[node] do
-        ^node -> node
-        p -> find_fn.(find_fn, p)
-      end
-    end
-
-    union = fn {i, j}, acc ->
-      root_i = find.(find, i)
-      root_j = find.(find, j)
-
-      if root_i == root_j do
-        acc
-      else
-        Map.put(acc, root_i, root_j)
-      end
-    end
-
-    parent = Enum.reduce(overlaps, parent, union)
+        if root_i == root_j do
+          acc
+        else
+          Map.put(acc, root_i, root_j)
+        end
+      end)
 
     parent
-    |> Enum.group_by(fn {_k, v} -> v end, fn {k, _v} -> k end)
+    |> Map.keys()
+    |> Enum.group_by(fn node -> uf_find(parent, node) end)
     |> Map.values()
-    |> Enum.filter(&(&1 != []))
+  end
+
+  # Follow parent pointers to the root. A node is the root when it is absent
+  # from the map (every node starts as its own root and only roots-to-be get
+  # entries added). The walk is bounded by the map size.
+  defp uf_find(parent, node, depth \\ 0)
+
+  defp uf_find(parent, node, depth) when depth > map_size(parent) do
+    # Defensive: a cycle would be a programming error; degrade to the node.
+    node
+  end
+
+  defp uf_find(parent, node, depth) do
+    case Map.fetch(parent, node) do
+      {:ok, ^node} ->
+        node
+
+      {:ok, p} ->
+        uf_find(parent, p, depth + 1)
+
+      :error ->
+        node
+    end
   end
 
   defp create_semantic_summary(cluster) do
