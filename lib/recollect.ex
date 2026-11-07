@@ -104,10 +104,19 @@ defmodule Recollect do
   - `:source` — "agent", "system", "user" (default: "system")
   - `:metadata` — Map of extra data
   - `:confidence` — Float 0.0-1.0 (default: 1.0)
+  - `:tags` — List of tag strings; normalized (trimmed, downcased, deduped)
+    and stored in `recollect_entry_tags` in the same transaction as the entry
+  - `:allow_secrets` — Skip the engine secret guard (default: false)
   """
   def remember(content, opts \\ []) do
     Recollect.Knowledge.remember(content, opts)
   end
+
+  @doc "List the tags stored for an entry."
+  def tags(entry_id), do: Recollect.Knowledge.tags(entry_id)
+
+  @doc "Replace an entry's tag set atomically; returns the normalized tags."
+  def set_tags(entry_id, tags), do: Recollect.Knowledge.set_tags(entry_id, tags)
 
   @doc "Delete a knowledge entry."
   def forget(entry_id) do

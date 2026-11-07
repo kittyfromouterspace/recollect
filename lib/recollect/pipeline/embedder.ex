@@ -82,11 +82,16 @@ defmodule Recollect.Pipeline.Embedder do
   end
 
   @doc "Embed a single entry asynchronously. No-op if embedding is disabled."
-  def embed_entry_async(%{id: entry_id, content: content}) when is_binary(content) do
+  def embed_entry_async(%{id: entry_id, content: content} = entry) when is_binary(content) do
     # MEM-035: enrichment is best-effort and commit-first. The entry row is
     # already written when this runs, so "embeddings disabled" is a skip, not
     # a throw — the old throw(:disabled) escaped remember/2 and every host
     # had to wrap calls in catch :disabled.
+    #
+    # MEM-005: the caller (remember/2) holds the committed tags; carry them
+    # through so mipmaps carry real tags instead of a hardcoded [].
+    tags = Map.get(entry, :tags) || []
+
     if Config.embedding_enabled?() do
       Task.Supervisor.start_child(
         Config.task_supervisor(),
@@ -102,21 +107,21 @@ defmodule Recollect.Pipeline.Embedder do
                 try do
                   repo = Config.repo()
 
-                  # recollect_entries has no `tags` column (never had one): selecting
+                  # recollect_entries has no `tags` column: selecting
                   # it failed every time and the rescue below hid it, so mipmaps
                   # were never persisted after an embed.
-                  entry =
+                  entry_row =
                     "SELECT id, content, entry_type, emotional_valence FROM recollect_entries WHERE id = $1"
                     |> repo.query([Recollect.Util.uuid_to_bin(entry_id)])
                     |> case do
                       {:ok, %{rows: [[id, content, entry_type, valence]], columns: _cols}} ->
-                        %{id: id, content: content, entry_type: entry_type, tags: [], emotional_valence: valence}
+                        %{id: id, content: content, entry_type: entry_type, emotional_valence: valence}
 
                       _ ->
                         nil
                     end
 
-                  if entry, do: Recollect.Mipmap.persist_async(entry)
+                  if entry_row, do: Recollect.Mipmap.persist_async(entry_row, tags)
                 rescue
                   _ -> :ok
                 end

@@ -60,6 +60,7 @@ defmodule Recollect.MigrationGenerator do
 
     """
     drop table(:#{prefix}handoffs)
+    drop table(:#{prefix}entry_tags)
     drop table(:#{prefix}edges)
     drop table(:#{prefix}entries)
     drop table(:#{prefix}pipeline_runs)
@@ -258,6 +259,13 @@ defmodule Recollect.MigrationGenerator do
       add :created_at, :utc_datetime_usec, null: false
       add :updated_at, :utc_datetime_usec, null: false
     end
+
+    create table(:#{prefix}entry_tags, primary_key: false) do
+      add :entry_id, references(:#{prefix}entries, type: :binary_id, on_delete: :delete_all), primary_key: true
+      add :tag, :string, primary_key: true
+      add :scope_id, #{inspect(uuid_type_atom)}
+      add :owner_id, #{inspect(uuid_type_atom)}
+    end
     """
   end
 
@@ -308,6 +316,9 @@ defmodule Recollect.MigrationGenerator do
     create unique_index(:#{prefix}edges, [:source_entry_id, :target_entry_id, :relation])
 
     create index(:#{prefix}handoffs, [:scope_id, :created_at])
+
+    create index(:#{prefix}entry_tags, [:scope_id, :tag])
+    create index(:#{prefix}entry_tags, [:tag])
     """
   end
 

@@ -23,15 +23,20 @@ defmodule Recollect.Mipmap do
 
   @levels [:anchor, :abstract, :summary, :full]
 
-  @doc "Generate mipmap entries for a source entry."
-  def generate_for(entry) do
+  @doc """
+  Generate mipmap entries for a source entry.
+
+  Tags are passed explicitly (MEM-005): the entries table has no tags column,
+  and callers (embedder, remember path) already hold the normalized list.
+  """
+  def generate_for(entry, tags \\ []) do
     start_time = System.monotonic_time()
 
     mipmaps = %{
       entry_id: entry.id,
-      full: to_full(entry),
-      summary: to_summary(entry),
-      abstract: to_abstract(entry),
+      full: to_full(entry, tags),
+      summary: to_summary(entry, tags),
+      abstract: to_abstract(entry, tags),
       anchor: to_anchor(entry)
     }
 
@@ -48,8 +53,8 @@ defmodule Recollect.Mipmap do
   end
 
   @doc "Store mipmaps for an entry in the database, including embeddings."
-  def persist(entry) do
-    mipmaps = generate_for(entry)
+  def persist(entry, tags \\ []) do
+    mipmaps = generate_for(entry, tags)
     repo = Config.repo()
     adapter = Config.adapter()
 
@@ -106,10 +111,10 @@ defmodule Recollect.Mipmap do
   end
 
   @doc "Persist mipmaps asynchronously (for use after entry embedding)."
-  def persist_async(entry) do
+  def persist_async(entry, tags \\ []) do
     Task.Supervisor.start_child(
       Config.task_supervisor(),
-      fn -> persist(entry) end,
+      fn -> persist(entry, tags) end,
       restart: :temporary
     )
 
@@ -215,18 +220,18 @@ defmodule Recollect.Mipmap do
 
   # Private: Level transformations
 
-  defp to_full(entry) do
+  defp to_full(entry, tags) do
     %{
       content: entry.content,
       metadata: %{
         entry_type: entry.entry_type,
-        tags: entry.tags || [],
+        tags: tags || [],
         emotional_valence: entry.emotional_valence
       }
     }
   end
 
-  defp to_summary(entry) do
+  defp to_summary(entry, tags) do
     content =
       entry.content
       |> String.slice(0, 200)
@@ -234,14 +239,14 @@ defmodule Recollect.Mipmap do
 
     metadata = %{
       entry_type: entry.entry_type,
-      tags: Enum.take(entry.tags || [], 5),
+      tags: Enum.take(tags || [], 5),
       emotional_valence: entry.emotional_valence
     }
 
     %{content: content, metadata: metadata}
   end
 
-  defp to_abstract(entry) do
+  defp to_abstract(entry, tags) do
     first_line =
       entry.content
       |> String.split("\n")
@@ -251,7 +256,7 @@ defmodule Recollect.Mipmap do
 
     metadata = %{
       entry_type: entry.entry_type,
-      tags: Enum.take(entry.tags || [], 3)
+      tags: Enum.take(tags || [], 3)
     }
 
     %{content: first_line, metadata: metadata}

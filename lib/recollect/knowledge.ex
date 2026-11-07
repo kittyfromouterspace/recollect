@@ -13,6 +13,7 @@ defmodule Recollect.Knowledge do
   alias Recollect.Pipeline.Embedder
   alias Recollect.Schema.Edge
   alias Recollect.Schema.Entry
+  alias Recollect.Schema.EntryTag
   alias Recollect.SchemaFit
   alias Recollect.Strength
   alias Recollect.Valence
@@ -104,7 +105,7 @@ defmodule Recollect.Knowledge do
       context_hints: context_hints
     }
 
-    case %Entry{} |> Entry.changeset(attrs) |> repo.insert() do
+    case insert_entry_with_tags(repo, attrs, tags) do
       {:ok, entry} ->
         Embedder.embed_entry_async(entry)
         {:ok, entry}
@@ -112,6 +113,91 @@ defmodule Recollect.Knowledge do
       {:error, changeset} ->
         {:error, changeset}
     end
+  end
+
+  # Entry + tags commit together (MEM-005): a remember that stores the row
+  # but drops the tags is the bug this replaces. Validation failures roll the
+  # transaction back into the usual {:error, changeset} — never a raise.
+  defp insert_entry_with_tags(repo, attrs, tags) do
+    repo.transaction(fn ->
+      case %Entry{} |> Entry.changeset(attrs) |> repo.insert() do
+        {:ok, entry} ->
+          tags = normalize_tags(tags)
+
+          if tags != [] do
+            rows =
+              Enum.map(tags, fn tag ->
+                %{entry_id: entry.id, tag: tag, scope_id: entry.scope_id, owner_id: entry.owner_id}
+              end)
+
+            repo.insert_all(EntryTag, rows,
+              on_conflict: :nothing,
+              conflict_target: [:entry_id, :tag]
+            )
+          end
+
+          %{entry | tags: tags}
+
+        {:error, changeset} ->
+          repo.rollback(changeset)
+      end
+    end)
+  end
+
+  @doc """
+  Normalize a tag list: binaries only, trimmed, downcased, empties dropped,
+  deduped, capped at 20 tags of at most 64 chars each.
+  """
+  def normalize_tags(tags) when is_list(tags) do
+    tags
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.map(&String.downcase/1)
+    |> Enum.map(&String.slice(&1, 0, 64))
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> Enum.take(20)
+  end
+
+  def normalize_tags(_), do: []
+
+  @doc "List the normalized tags stored for an entry."
+  def tags(entry_id) do
+    Config.repo().all(
+      from(t in EntryTag,
+        where: t.entry_id == ^entry_id,
+        order_by: [asc: t.tag],
+        select: t.tag
+      )
+    )
+  end
+
+  @doc """
+  Replace an entry's tag set atomically. Returns the normalized tags stored.
+  """
+  def set_tags(entry_id, tags) when is_list(tags) do
+    repo = Config.repo()
+
+    repo.transaction(fn ->
+      entry = repo.get!(Entry, entry_id)
+      tags = normalize_tags(tags)
+
+      repo.delete_all(from(t in EntryTag, where: t.entry_id == ^entry.id))
+
+      if tags != [] do
+        rows =
+          Enum.map(tags, fn tag ->
+            %{entry_id: entry.id, tag: tag, scope_id: entry.scope_id, owner_id: entry.owner_id}
+          end)
+
+        repo.insert_all(EntryTag, rows,
+          on_conflict: :nothing,
+          conflict_target: [:entry_id, :tag]
+        )
+      end
+
+      tags
+    end)
   end
 
   defp maybe_add_classification(metadata, nil), do: metadata

@@ -32,6 +32,12 @@ defmodule Recollect.Schema.Entry do
     field(:confidence_state, :string, default: "active")
     field(:context_hints, :map, default: %{})
 
+    # Virtual: populated from recollect_entry_tags by Knowledge.tags-aware
+    # paths (preload :entry_tags). Never persisted on the entries row itself.
+    field(:tags, {:array, :string}, virtual: true, default: [])
+
+    has_many(:entry_tags, Recollect.Schema.EntryTag)
+
     timestamps()
   end
 

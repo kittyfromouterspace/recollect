@@ -38,7 +38,8 @@ defmodule Recollect.Search.Vector do
     edge (default: false — superseded entries are excluded)
   - `:filters` — Map of additional filters:
       - `:entry_type` — Filter by entry type (e.g., :decision, :preference)
-      - `:tags` — Filter by tags (list)
+      - `:tags` — Only entries carrying ALL of these tags (normalized)
+      - `:tags_any` — Only entries carrying AT LEAST ONE of these tags
       - `:temporal` — `:recent` (last 30 days), `:archived`, or DateTime range
       - `:confidence_min` — Minimum confidence threshold
   """
@@ -235,8 +236,7 @@ defmodule Recollect.Search.Vector do
   # Document summary tier (Tier 1, :full/:both only): vector-match document
   # gists, then contribute each hit's top chunks — marked `via: :summary` —
   # when they aren't already present from direct chunk search.
-  defp maybe_search_summaries(acc, embedding_str, opts, limit, min_score, tier)
-       when tier in [:full, :both] do
+  defp maybe_search_summaries(acc, embedding_str, opts, limit, min_score, tier) when tier in [:full, :both] do
     case Keyword.get(opts, :owner_id) do
       nil ->
         acc
@@ -616,8 +616,7 @@ defmodule Recollect.Search.Vector do
     {sql, [embedding_str, Recollect.Util.uuid_to_bin(owner_id), min_score, limit]}
   end
 
-  defp summaries_query(dialect, adapter, embedding_str, owner_id, limit, min_score)
-       when dialect in [:sqlite, :libsql] do
+  defp summaries_query(dialect, adapter, embedding_str, owner_id, limit, min_score) when dialect in [:sqlite, :libsql] do
     similarity = adapter.vector_similarity_sql("md.summary_embedding", "?")
     distance = adapter.vector_distance_sql("md.summary_embedding", "?")
 
@@ -652,8 +651,7 @@ defmodule Recollect.Search.Vector do
     {sql, [embedding_str, Recollect.Util.uuid_to_bin(document_id), limit]}
   end
 
-  defp top_chunks_query(dialect, adapter, embedding_str, document_id, limit)
-       when dialect in [:sqlite, :libsql] do
+  defp top_chunks_query(dialect, adapter, embedding_str, document_id, limit) when dialect in [:sqlite, :libsql] do
     distance = adapter.vector_distance_sql("mc.embedding", "?")
 
     sql = """
@@ -671,19 +669,26 @@ defmodule Recollect.Search.Vector do
   end
 
   # ── Filter Builders ─────────────────────────────────────────────────
+  #
+  # Clauses are `{sql, params}` pairs; params is always a list so multi-param
+  # clauses (tags) keep the placeholder arithmetic honest. The base query
+  # binds $1..$4 (embedding, scope/owner, min_score, limit), so filter
+  # placeholders start at $5.
 
   defp build_entry_filters_pg(filters) when filters == %{} or filters == nil do
     {"", []}
   end
 
   defp build_entry_filters_pg(filters) do
-    conditions_and_params =
+    clauses =
       []
       |> add_entry_type_filter_pg(filters[:entry_type])
       |> add_confidence_filter_pg(filters[:confidence_min])
       |> add_temporal_filter_pg(filters[:temporal])
+      |> add_tags_all_filter_pg(filters[:tags])
+      |> add_tags_any_filter_pg(filters[:tags_any])
 
-    {conditions, params} = Enum.unzip(conditions_and_params)
+    {conditions, param_lists} = Enum.unzip(clauses)
 
     filter_sql =
       if conditions == [] do
@@ -692,26 +697,67 @@ defmodule Recollect.Search.Vector do
         "AND " <> Enum.join(conditions, " AND ")
       end
 
-    {filter_sql, params}
+    {filter_sql, Enum.flat_map(param_lists, & &1)}
+  end
+
+  defp next_pg_idx(clauses) do
+    5 + (clauses |> Enum.flat_map(fn {_sql, params} -> params end) |> length())
   end
 
   defp add_entry_type_filter_pg(acc, nil), do: acc
 
   defp add_entry_type_filter_pg(acc, entry_type) do
-    acc ++ [{"me.entry_type = $#{5 + length(acc)}", to_string(entry_type)}]
+    acc ++ [{"me.entry_type = $#{next_pg_idx(acc)}", [to_string(entry_type)]}]
   end
 
   defp add_confidence_filter_pg(acc, nil), do: acc
 
   defp add_confidence_filter_pg(acc, confidence_min) do
-    acc ++ [{"me.confidence >= $#{5 + length(acc)}", confidence_min}]
+    acc ++ [{"me.confidence >= $#{next_pg_idx(acc)}", [confidence_min]}]
   end
 
   defp add_temporal_filter_pg(acc, nil), do: acc
 
   defp add_temporal_filter_pg(acc, :recent) do
     thirty_days_ago = DateTime.add(DateTime.utc_now(), -30 * 24 * 3600, :second)
-    acc ++ [{"me.inserted_at >= $#{5 + length(acc)}", thirty_days_ago}]
+    acc ++ [{"me.inserted_at >= $#{next_pg_idx(acc)}", [thirty_days_ago]}]
+  end
+
+  # :tags — every listed tag must be present on the entry.
+  defp add_tags_all_filter_pg(acc, nil), do: acc
+
+  defp add_tags_all_filter_pg(acc, tags) when is_list(tags) do
+    case Recollect.Knowledge.normalize_tags(tags) do
+      [] ->
+        acc
+
+      normalized ->
+        idx = next_pg_idx(acc)
+
+        acc ++
+          [
+            {"(SELECT count(DISTINCT t.tag) FROM recollect_entry_tags t " <>
+               "WHERE t.entry_id = me.id AND t.tag = ANY($#{idx}::text[])) = $#{idx + 1}",
+             [normalized, length(normalized)]}
+          ]
+    end
+  end
+
+  # :tags_any — at least one listed tag must be present.
+  defp add_tags_any_filter_pg(acc, nil), do: acc
+
+  defp add_tags_any_filter_pg(acc, tags) when is_list(tags) do
+    case Recollect.Knowledge.normalize_tags(tags) do
+      [] ->
+        acc
+
+      normalized ->
+        acc ++
+          [
+            {"EXISTS (SELECT 1 FROM recollect_entry_tags t " <>
+               "WHERE t.entry_id = me.id AND t.tag = ANY($#{next_pg_idx(acc)}::text[]))", [normalized]}
+          ]
+    end
   end
 
   defp build_entry_filters_sqlite(filters) when filters == %{} or filters == nil do
@@ -719,13 +765,15 @@ defmodule Recollect.Search.Vector do
   end
 
   defp build_entry_filters_sqlite(filters) do
-    conditions_and_params =
+    clauses =
       []
       |> add_filter_sqlite(filters[:entry_type], "me.entry_type = ?", &to_string/1)
       |> add_filter_sqlite(filters[:confidence_min], "me.confidence >= ?", & &1)
       |> add_temporal_filter_sqlite(filters[:temporal])
+      |> add_tags_all_filter_sqlite(filters[:tags])
+      |> add_tags_any_filter_sqlite(filters[:tags_any])
 
-    {conditions, params} = Enum.unzip(conditions_and_params)
+    {conditions, param_lists} = Enum.unzip(clauses)
 
     filter_sql =
       if conditions == [] do
@@ -734,20 +782,55 @@ defmodule Recollect.Search.Vector do
         "AND " <> Enum.join(conditions, " AND ")
       end
 
-    {filter_sql, params}
+    {filter_sql, Enum.flat_map(param_lists, & &1)}
   end
 
   defp add_filter_sqlite(acc, nil, _sql, _transform), do: acc
 
   defp add_filter_sqlite(acc, value, sql, transform) do
-    acc ++ [{sql, transform.(value)}]
+    acc ++ [{sql, [transform.(value)]}]
   end
 
   defp add_temporal_filter_sqlite(acc, nil), do: acc
 
   defp add_temporal_filter_sqlite(acc, :recent) do
     thirty_days_ago = DateTime.add(DateTime.utc_now(), -30 * 24 * 3600, :second)
-    acc ++ [{"me.inserted_at >= ?", DateTime.to_iso8601(thirty_days_ago)}]
+    acc ++ [{"me.inserted_at >= ?", [DateTime.to_iso8601(thirty_days_ago)]}]
+  end
+
+  defp sqlite_tag_placeholders(tags), do: Enum.map_join(tags, ", ", fn _ -> "?" end)
+
+  defp add_tags_all_filter_sqlite(acc, nil), do: acc
+
+  defp add_tags_all_filter_sqlite(acc, tags) when is_list(tags) do
+    case Recollect.Knowledge.normalize_tags(tags) do
+      [] ->
+        acc
+
+      normalized ->
+        acc ++
+          [
+            {"(SELECT count(DISTINCT t.tag) FROM recollect_entry_tags t " <>
+               "WHERE t.entry_id = me.id AND t.tag IN (#{sqlite_tag_placeholders(normalized)})) = ?",
+             normalized ++ [length(normalized)]}
+          ]
+    end
+  end
+
+  defp add_tags_any_filter_sqlite(acc, nil), do: acc
+
+  defp add_tags_any_filter_sqlite(acc, tags) when is_list(tags) do
+    case Recollect.Knowledge.normalize_tags(tags) do
+      [] ->
+        acc
+
+      normalized ->
+        acc ++
+          [
+            {"EXISTS (SELECT 1 FROM recollect_entry_tags t " <>
+               "WHERE t.entry_id = me.id AND t.tag IN (#{sqlite_tag_placeholders(normalized)}))", normalized}
+          ]
+    end
   end
 
   # ── Helpers ─────────────────────────────────────────────────────────

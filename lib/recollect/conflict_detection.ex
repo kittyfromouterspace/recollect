@@ -137,11 +137,20 @@ defmodule Recollect.ConflictDetection do
     repo = Recollect.Config.repo()
 
     from(e in Entry,
+      left_join: t in assoc(e, :entry_tags),
       where: e.scope_id == ^scope_id and e.entry_type != "archived",
-      order_by: [asc: e.id],
-      select: %{id: e.id, content: e.content}
+      order_by: [asc: e.id, asc: t.tag],
+      select: %{id: e.id, content: e.content, tag: t.tag}
     )
     |> repo.all()
-    |> Enum.map(fn row -> Map.put(row, :tags, []) end)
+    |> Enum.group_by(& &1.id)
+    |> Enum.map(fn {id, rows} ->
+      %{
+        id: id,
+        content: hd(rows).content,
+        tags: rows |> Enum.map(& &1.tag) |> Enum.reject(&is_nil/1)
+      }
+    end)
+    |> Enum.sort_by(& &1.id)
   end
 end
