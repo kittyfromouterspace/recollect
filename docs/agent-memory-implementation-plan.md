@@ -3354,6 +3354,8 @@ the live status column.
 | 2026-11-08 | MEM-015 | B-2584 | `34165a3` | remember/2 = one Ecto.Multi (entry+tags+evidence, :evidence opt, atomic rollback on bad links); dedupe :update links evidence atomically; ingest_batch/2 with counts (skipped/failed semantics); harvest records carry stable :source_id (Mcp sink forwards to stage_memory); checkpoint no-op asserted; 311/0 |
 | 2026-11-08 | MEM-016 | B-2585 | `5afdcde` | Pipeline records each extract as a ledger event and binds derived_from evidence atomically (owner_id opt, events.enabled:false -> records-only fallback); Event.record enforces max_content_bytes at write time (UTF-8-safe truncation + marker); harvest records carry :events raw material (Jsonl passthrough); consent upstream, dry-runs inert; 317/0 |
 | 2026-11-08 | MEM-017 | B-2586 | `bdbff51` | Recollect.Review: candidates/2 (six reasons per plan + suggested-action precedence, most-flagged first) + explain/1 (evidence, usage, verification, supersedes directions, human :why); Knowledge.review/explain + facade delegates; telemetry spans; 328/0 |
+| 2026-11-08 | — | B-2570 | `6658d50` | chore(format): pipeline_quarantine_test.exs — last pre-existing drift; format leg of mix check green repo-wide again |
+| 2026-11-08 | — | v0.7.0 | `cf80a5b` | Released v0.7.0 (tag on mem-phase0; Hex publish deferred) — phase 0 + phase 1, 20/40 tickets; full mix check green (clean compile, format, 328/0). Tag hash note: 6658d50 was amended to 9d67d4c when the other five drifted files joined the format chore |
 
 ---
 
