@@ -70,40 +70,60 @@ defmodule Recollect.Sleep do
     scope_id = Keyword.fetch!(opts, :scope_id)
     dry_run = Keyword.get(opts, :dry_run, false)
 
-    {:ok, candidates} = WorkingMemory.read(scope_id)
-    distilled = distill(candidates, opts)
+    if dry_run do
+      {:ok, candidates} = WorkingMemory.read(scope_id)
+      distilled = distill(candidates, opts)
 
-    promoted =
-      if dry_run do
-        []
-      else
-        Enum.flat_map(distilled, fn item ->
+      {:ok,
+       %{
+         candidates: length(candidates),
+         distilled: length(distilled),
+         promoted: 0,
+         failed: 0,
+         returned: 0,
+         flushed: 0
+       }}
+    else
+      # MEM-022: drain atomically instead of the read/clear pair — a push
+      # landing mid-promotion waits on the GenServer and lands in the fresh
+      # buffer, never lost.
+      {:ok, candidates} = WorkingMemory.drain(scope_id)
+      distilled = distill(candidates, opts)
+
+      {promoted, failed} =
+        Enum.reduce(distilled, {[], []}, fn item, {ok, fail} ->
           case persist(item, scope_id, opts) do
             {:ok, entry} ->
-              [entry]
+              {[entry | ok], fail}
 
             {:error, reason} ->
               Logger.warning("Recollect.Sleep: failed to promote a memory: #{inspect(reason)}")
-              []
+              {ok, [item | fail]}
           end
         end)
-      end
 
-    flushed =
-      if dry_run do
-        0
-      else
-        {:ok, n} = WorkingMemory.clear(scope_id)
-        n
-      end
+      promoted = Enum.reverse(promoted)
+      failed = Enum.reverse(failed)
 
-    {:ok,
-     %{
-       candidates: length(candidates),
-       distilled: length(distilled),
-       promoted: length(promoted),
-       flushed: flushed
-     }}
+      # Only the failed items go back — a promoted item never returns to
+      # working memory, and nothing we didn't persist is silently cleared.
+      Enum.each(failed, fn item ->
+        WorkingMemory.push(scope_id, item.content,
+          importance: Map.get(item, :importance, 0.0),
+          metadata: Map.get(item, :metadata, %{})
+        )
+      end)
+
+      {:ok,
+       %{
+         candidates: length(candidates),
+         distilled: length(distilled),
+         promoted: length(promoted),
+         failed: length(failed),
+         returned: length(failed),
+         flushed: length(candidates)
+       }}
+    end
   end
 
   @doc """
@@ -135,6 +155,11 @@ defmodule Recollect.Sleep do
 
     tags = Enum.uniq(Map.get(item, :tags, []) ++ Keyword.get(opts, :tags, []))
 
+    # MEM-022: promoted entries carry a stable source identity so a
+    # re-promotion of the same working-memory item dedupes instead of
+    # duplicating.
+    source_id = promoted_source_id(item)
+
     Knowledge.remember(item.content,
       scope_id: scope_id,
       owner_id: Keyword.get(opts, :owner_id),
@@ -143,8 +168,27 @@ defmodule Recollect.Sleep do
       metadata: metadata,
       confidence: Map.get(item, :confidence, @default_confidence),
       half_life_days: Keyword.get(opts, :half_life_days, @default_half_life_days),
-      source: "system"
+      source: "sleep",
+      source_id: source_id
     )
+  end
+
+  defp promoted_source_id(item) do
+    case Map.get(item, :id) do
+      id when is_binary(id) ->
+        "sleep:#{id}"
+
+      _ ->
+        content = Map.get(item, :content, "")
+
+        hash =
+          :sha256
+          |> :crypto.hash(content)
+          |> Base.encode16(case: :lower)
+          |> binary_part(0, 16)
+
+        "sleep:#{hash}"
+    end
   end
 
   # --- LLM distiller ---
@@ -230,6 +274,11 @@ defmodule Recollect.Sleep do
 
     if is_binary(content) and String.trim(content) != "" do
       %{
+        # MEM-022: the working-memory item's id rides along so promoted
+        # entries get a stable source_id (re-promotion dedupes) and failed
+        # items can be re-inserted faithfully.
+        id: item[:id] || item["id"],
+        importance: item[:importance] || item["importance"] || 0.0,
         content: content,
         tags: item[:tags] || item["tags"] || [],
         metadata: stringify_keys(item[:metadata] || item["metadata"] || %{}),

@@ -24,6 +24,7 @@ defmodule Recollect.Handoff do
   alias Recollect.Config
   alias Recollect.Schema.Handoff, as: HandoffRow
   alias Recollect.Telemetry
+  alias Recollect.Tokenizer
 
   @doc """
   Create a handoff for a scope.
@@ -34,39 +35,128 @@ defmodule Recollect.Handoff do
   - `:artifacts` - Files/links to continue with (optional)
   - `:blockers` - What's blocking progress (optional)
   - `:session_id` - Current session ID (optional)
-  """
-  def create(scope_id, opts \\ []) do
-    what = Keyword.fetch!(opts, :what)
-    next = Keyword.get(opts, :next, [])
-    artifacts = Keyword.get(opts, :artifacts, [])
-    blockers = Keyword.get(opts, :blockers, [])
-    session_id = Keyword.get(opts, :session_id)
 
+  MEM-022: handoffs feed the brief, so they are budgeted. Strings are
+  capped (with an explicit `…[truncated]` marker), lists at 10 items with
+  an `[+N truncated]` marker, and if the total still exceeds
+  `brief.token_budget` the tail items of blockers/artifacts/next are
+  dropped (markers kept) until it fits. `what` is never dropped.
+  """
+  @token_budget_default 1_500
+  @string_cap 300
+  @list_cap 10
+  @truncate_marker "…[truncated]"
+  @list_marker "[+N truncated]"
+
+  def create(scope_id, opts \\ []) do
+    what = truncate_text(Keyword.fetch!(opts, :what))
+    budget = Config.brief()[:token_budget] || @token_budget_default
     repo = Config.repo()
+
+    lists =
+      Map.new(
+        %{
+          next: Keyword.get(opts, :next, []),
+          artifacts: Keyword.get(opts, :artifacts, []),
+          blockers: Keyword.get(opts, :blockers, [])
+        },
+        fn {key, list} -> {key, cap_list(list)} end
+      )
+
+    {lists, overflowed} = fit_to_budget(what, lists, budget)
+
     now = DateTime.utc_now()
 
-    # Telemetry.span returns the fun's result verbatim — return the query
-    # result directly (wrapping it in a tuple leaks the wrapper to callers).
     Telemetry.span(
       [:recollect, :handoff, :create],
-      %{scope_id: scope_id, next_count: length(next), artifacts_count: length(artifacts)},
+      %{
+        scope_id: scope_id,
+        next_count: length(lists.next),
+        artifacts_count: length(lists.artifacts),
+        truncated: overflowed
+      },
       fn ->
-        # The list columns are JSON-encoded text — the on-disk contract is
-        # unchanged from the raw-SQL days.
         %HandoffRow{}
         |> Ecto.Changeset.change(%{
           scope_id: scope_id,
-          session_id: session_id,
+          session_id: Keyword.get(opts, :session_id),
           what: what,
-          next: Jason.encode!(next),
-          artifacts: Jason.encode!(artifacts),
-          blockers: Jason.encode!(blockers),
+          next: Jason.encode!(lists.next),
+          artifacts: Jason.encode!(lists.artifacts),
+          blockers: Jason.encode!(lists.blockers),
           created_at: now,
           updated_at: now
         })
         |> repo.insert()
       end
     )
+  end
+
+  defp cap_list(list) when is_list(list) do
+    list
+    |> Enum.take(@list_cap)
+    |> Enum.map(&truncate_text/1)
+    |> with_overflow_marker(length(list))
+  end
+
+  defp cap_list(_other), do: []
+
+  defp with_overflow_marker(items, original) when length(items) < original do
+    dropped = original - length(items)
+    items ++ ["[+#{dropped} #{@list_marker}]"]
+  end
+
+  defp with_overflow_marker(items, _original), do: items
+
+  defp truncate_text(text) when is_binary(text) do
+    if String.length(text) > @string_cap do
+      String.slice(text, 0, @string_cap) <> @truncate_marker
+    else
+      text
+    end
+  end
+
+  defp truncate_text(other), do: other
+
+  # Tail-trim blockers, then artifacts, then next (what never goes) until
+  # the handoff fits `brief.token_budget`. Markers are added once after
+  # trimming (re-adding per drop would fight the budget check).
+  defp fit_to_budget(what, lists, budget) do
+    {lists, trimmed} = trim_until_fit(what, lists, budget, [:blockers, :artifacts, :next], false)
+    {maybe_mark(lists, trimmed), trimmed}
+  end
+
+  defp trim_until_fit(what, lists, budget, order, trimmed) do
+    if over_budget?(what, lists, budget) and order != [] do
+      [key | rest] = order
+      items = lists[key]
+
+      if length(items) > 1 do
+        trim_until_fit(what, Map.put(lists, key, Enum.drop(items, -1)), budget, order, true)
+      else
+        # keep the last item so the truncation stays explicit
+        trim_until_fit(what, lists, budget, rest, trimmed)
+      end
+    else
+      {lists, trimmed}
+    end
+  end
+
+  defp maybe_mark(lists, false), do: lists
+
+  defp maybe_mark(lists, true) do
+    Map.new(lists, fn {key, items} ->
+      if items == [] do
+        {key, items}
+      else
+        {key, List.replace_at(items, -1, "[handoff truncated to fit brief.token_budget]")}
+      end
+    end)
+  end
+
+  defp over_budget?(what, lists, budget) do
+    parts = [what | Enum.flat_map(Map.values(lists), & &1)]
+    Tokenizer.estimate(Enum.join(parts, "\n")) > budget
   end
 
   @doc """

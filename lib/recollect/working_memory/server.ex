@@ -35,6 +35,16 @@ defmodule Recollect.WorkingMemory.Server do
     GenServer.call(pid, :clear)
   end
 
+  @doc """
+  Atomically swap out all entries: returns them sorted by importance and
+  leaves the server running with an empty buffer (MEM-022). A push that
+  lands after the drain is still in the buffer — nothing is lost to a
+  read/clear race.
+  """
+  def drain(pid) do
+    GenServer.call(pid, :drain)
+  end
+
   @doc "Get the scope_id for this server."
   def scope_id(pid) do
     GenServer.call(pid, :scope_id)
@@ -71,6 +81,13 @@ defmodule Recollect.WorkingMemory.Server do
 
   def handle_call(:clear, _from, state) do
     {:reply, length(state.entries), %{state | entries: []}}
+  end
+
+  # MEM-022: single atomic swap — the read and the clear can't interleave,
+  # so promote() can never miss an entry or wipe one it didn't persist.
+  def handle_call(:drain, _from, state) do
+    sorted = Enum.sort_by(state.entries, fn e -> {-e.importance, e.inserted_at} end)
+    {:reply, {:ok, sorted}, %{state | entries: []}}
   end
 
   def handle_call(:scope_id, _from, state) do

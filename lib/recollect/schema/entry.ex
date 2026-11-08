@@ -115,7 +115,7 @@ defmodule Recollect.Schema.Entry do
     ])
     |> validate_required([:content])
     |> validate_inclusion(:entry_type, @entry_types)
-    |> validate_inclusion(:source, ~w(agent system user))
+    |> validate_inclusion(:source, ~w(agent system user sleep))
     |> validate_number(:confidence, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
     |> validate_inclusion(:emotional_valence, ~w(neutral positive negative critical))
     |> validate_inclusion(:confidence_state, ~w(active stale verified))

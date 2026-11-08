@@ -19,6 +19,80 @@ defmodule Recollect.SleepTest do
     )
   end
 
+  describe "promote/1 atomicity (MEM-022)" do
+    test "a concurrent push during promote is not lost", ctx do
+      WorkingMemory.push(ctx.scope_id, "first note for promotion", importance: 0.9)
+
+      pusher =
+        Task.async(fn ->
+          Process.sleep(20)
+          WorkingMemory.push(ctx.scope_id, "late push during promote", importance: 0.9)
+        end)
+
+      {:ok, _result} =
+        Sleep.promote(scope_id: ctx.scope_id, owner_id: ctx.owner_id, use_llm: false, importance_threshold: 0.5)
+
+      Task.await(pusher)
+
+      # the late push either made it into the drained candidates (and got
+      # promoted) or sits in the fresh buffer — never lost
+      stored = Enum.map(permanent_entries(ctx.scope_id), & &1.content)
+      {:ok, remaining} = WorkingMemory.read(ctx.scope_id)
+
+      contents = stored ++ Enum.map(remaining, & &1.content)
+      assert "late push during promote" in contents
+    end
+
+    test "a failed persist returns the item to working memory", ctx do
+      WorkingMemory.push(ctx.scope_id, "good note for promotion", importance: 0.9)
+
+      # the engine-level secret guard rejects this one at remember-time
+      WorkingMemory.push(ctx.scope_id, "AWS key AKIAIOSFODNN7EXAMPLE leaked here", importance: 0.9)
+
+      {:ok, result} =
+        Sleep.promote(scope_id: ctx.scope_id, owner_id: ctx.owner_id, use_llm: false, importance_threshold: 0.5)
+
+      assert result.promoted == 1
+      assert result.failed == 1
+      assert result.returned == 1
+
+      {:ok, remaining} = WorkingMemory.read(ctx.scope_id)
+      assert Enum.any?(remaining, &(&1.content =~ "AKIAIOSFODNN7EXAMPLE"))
+
+      # and the promoted one did not come back
+      refute Enum.any?(remaining, &(&1.content =~ "good note"))
+    end
+
+    test "promoted entries carry sleep origin and a stable source id", ctx do
+      WorkingMemory.push(ctx.scope_id, "promote me with provenance",
+        importance: 0.9,
+        metadata: %{"tags" => ["sleep-test"]}
+      )
+
+      {:ok, result} =
+        Sleep.promote(scope_id: ctx.scope_id, owner_id: ctx.owner_id, use_llm: false, importance_threshold: 0.5)
+
+      assert result.promoted == 1
+
+      [entry] = permanent_entries(ctx.scope_id)
+      assert entry.metadata["origin"] == "sleep"
+      assert entry.source == "sleep"
+      assert entry.source_id =~ "sleep:"
+    end
+
+    test "drain/1 atomically empties the buffer and returns sorted entries", ctx do
+      WorkingMemory.push(ctx.scope_id, "low", importance: 0.2)
+      WorkingMemory.push(ctx.scope_id, "high", importance: 0.9)
+
+      assert {:ok, drained} = WorkingMemory.drain(ctx.scope_id)
+      assert Enum.map(drained, & &1.content) == ["high", "low"]
+
+      # buffer is empty but the server lives on
+      assert {:ok, []} = WorkingMemory.read(ctx.scope_id)
+      assert {:ok, _} = WorkingMemory.push(ctx.scope_id, "after drain", importance: 0.5)
+    end
+  end
+
   describe "promote/1 with the heuristic distiller" do
     test "promotes high-importance working memory into permanent memory and flushes", ctx do
       WorkingMemory.push(ctx.scope_id, "Always URL-encode the DB password slash as %2F.", importance: 0.9)
@@ -42,7 +116,9 @@ defmodule Recollect.SleepTest do
       assert length(entries) == 1
       [entry] = entries
       assert entry.content =~ "URL-encode"
-      assert entry.source == "system"
+      # MEM-022: promoted entries carry their own source identity
+      assert entry.source == "sleep"
+      assert entry.source_id =~ "sleep:"
       assert entry.metadata["consolidated"] == true
       assert entry.metadata["origin"] == "sleep"
 

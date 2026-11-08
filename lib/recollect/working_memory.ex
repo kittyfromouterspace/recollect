@@ -52,34 +52,57 @@ defmodule Recollect.WorkingMemory do
     end
   end
 
+  @doc """
+  Atomically drain the scope's buffer: returns the entries (importance
+  DESC) and empties it without killing the server, so pushes concurrent
+  with a drain land safely in the fresh buffer. Used by `Sleep.promote/1`
+  (MEM-022) instead of the read/clear pair.
+  """
+  def drain(scope_id) do
+    case whereis_scope(scope_id) do
+      nil -> {:ok, []}
+      pid -> Server.drain(pid)
+    end
+  end
+
   @doc "Semantic alias for clear, used at session boundaries."
   def flush(scope_id), do: clear(scope_id)
 
   @doc """
   Load handoff into working memory on session resume.
 
-  Pushes handoff items as high-importance entries so the session
-  can immediately continue from where it left off.
+  Pushes handoff items as working-memory entries so the session can
+  immediately continue from where it left off.
+
+  MEM-022: bounded and de-prioritized — at most
+  `brief.max_items_per_section` items (default 5), all at importance
+  LOWER than live session notes, so a large handoff can never evict the
+  session's own notes from the 20-slot buffer.
   """
   def load_handoff(scope_id) do
     alias Recollect.Telemetry
 
+    max_items = Recollect.Config.brief()[:max_items_per_section] || 5
+
     case Recollect.Handoff.get(scope_id) do
       {:ok, handoff} when not is_nil(handoff) ->
-        # Push handoff items to working memory
-        push(scope_id, "Handoff: #{handoff.what}", importance: 0.95)
+        items =
+          [
+            {"Handoff: #{handoff.what}", 0.6}
+          ]
+          |> Enum.concat(Enum.map(handoff.next, &{"Next: #{&1}", 0.5}))
+          |> Enum.concat(Enum.map(handoff.artifacts, &{"Artifact: #{&1}", 0.4}))
+          |> Enum.take(max_items)
 
-        Enum.each(handoff.next, fn step ->
-          push(scope_id, "Next: #{step}", importance: 0.8)
+        Enum.each(items, fn {content, importance} ->
+          push(scope_id, content, importance: importance)
         end)
 
-        Enum.each(handoff.artifacts, fn artifact ->
-          push(scope_id, "Artifact: #{artifact}", importance: 0.7)
-        end)
+        pushed = length(items)
 
         Telemetry.event(
           [:recollect, :handoff, :load, :stop],
-          %{next_count: length(handoff.next), artifacts_count: length(handoff.artifacts)},
+          %{pushed: pushed, next_count: length(handoff.next), artifacts_count: length(handoff.artifacts)},
           %{scope_id: scope_id}
         )
 
@@ -87,7 +110,8 @@ defmodule Recollect.WorkingMemory do
          %{
            what: handoff.what,
            next_count: length(handoff.next),
-           artifacts_count: length(handoff.artifacts)
+           artifacts_count: length(handoff.artifacts),
+           pushed: pushed
          }}
 
       _ ->

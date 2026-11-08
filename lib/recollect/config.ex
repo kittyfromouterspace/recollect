@@ -210,6 +210,15 @@ defmodule Recollect.Config do
     Application.get_env(:recollect, :events, [])
   end
 
+  @doc "The `:brief` option group (`config :recollect, brief: [...]`).
+
+  Recognized keys: `:token_budget` (handoff budget checks, default 1500),
+  `:max_items_per_section` (working-memory handoff loading, default 5),
+  `:enabled` (brief toggle, used by hosts)."
+  def brief do
+    Application.get_env(:recollect, :brief, [])
+  end
+
   @doc """
   Optional exact tokenizer for budget math (`config :recollect,
   tokenizer_fn: &MyTokenizer.count/1`), a 1-arity fun from text to token
