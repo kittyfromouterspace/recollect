@@ -198,6 +198,19 @@ defmodule Recollect.Config do
   end
 
   @doc """
+  Event ledger options (`config :recollect, events: [...]`).
+
+  Recognized keys:
+
+  - `:retention_days` — ledger GC horizon used by `Recollect.Event.prune/1` (default 30)
+  - `:enabled` — whether the learning pipeline records events (used by MEM-016)
+  - `:max_content_bytes` — per-event content cap (used by MEM-016)
+  """
+  def events do
+    Application.get_env(:recollect, :events, [])
+  end
+
+  @doc """
   Optional callback invoked when entities or relations are persisted.
 
   Called by `Recollect.Pipeline.Extractor.persist_entities/2` and

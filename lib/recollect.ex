@@ -239,6 +239,41 @@ defmodule Recollect do
   end
 
   @doc """
+  Record a raw event in the ledger (see `Recollect.Event.record/1`).
+
+  ## Options
+  - `:owner_id` — Required. The owning user
+  - `:event_type` — Required. message | tool_call | tool_result | file_change | test_run | commit | state | custom
+  - `:content` or `:source_uri` — at least one, so the event verifies something
+  - `:occurred_at`, `:scope_id`, `:session_id`, `:agent`, `:role`, `:source_ref`, `:parent_event_id`, `:metadata`
+
+  Idempotent: recording the same event twice returns the first row.
+  """
+  def record_event(opts) do
+    Recollect.Event.record(opts)
+  end
+
+  @doc "List ledger events for a scope (see `Recollect.Event.list/2`)."
+  def list_events(scope_id, opts \\ []) do
+    Recollect.Event.list(scope_id, opts)
+  end
+
+  @doc "Link an entry (claim) to its evidence (see `Recollect.Evidence.link/3`)."
+  def link_evidence(entry_id, relation, opts \\ []) do
+    Recollect.Evidence.link(entry_id, relation, opts)
+  end
+
+  @doc "Evidence rows for an entry, with their events preloaded."
+  def entry_evidence(entry_id) do
+    Recollect.Evidence.for_entry(entry_id)
+  end
+
+  @doc "Delete events older than `events.retention_days`, unless evidence still references them."
+  def prune_events(opts \\ []) do
+    Recollect.Event.prune(opts)
+  end
+
+  @doc """
   Archive stale entries based on access patterns.
 
   Default: entries not accessed in 90 days with < 3 accesses.

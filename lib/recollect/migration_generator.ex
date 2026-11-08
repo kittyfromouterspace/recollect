@@ -59,6 +59,8 @@ defmodule Recollect.MigrationGenerator do
     prefix = Keyword.get(opts, :table_prefix, "recollect_")
 
     """
+    drop table(:#{prefix}evidence)
+    drop table(:#{prefix}events)
     drop table(:#{prefix}handoffs)
     drop table(:#{prefix}entry_tags)
     drop table(:#{prefix}edges)
@@ -266,6 +268,36 @@ defmodule Recollect.MigrationGenerator do
       add :scope_id, #{inspect(uuid_type_atom)}
       add :owner_id, #{inspect(uuid_type_atom)}
     end
+
+    create table(:#{prefix}events, primary_key: false) do
+      add :id, :binary_id, primary_key: true
+      add :owner_id, #{inspect(uuid_type_atom)}, null: false
+      add :scope_id, #{inspect(uuid_type_atom)}
+      add :session_id, #{inspect(uuid_type_atom)}
+      add :agent, :string
+      add :event_type, :string, null: false
+      add :role, :string
+      add :content, :text
+      add :occurred_at, :utc_datetime_usec, null: false
+      add :source_uri, :string
+      add :source_ref, :string
+      add :parent_event_id, references(:#{prefix}events, type: :binary_id, on_delete: :nilify_all)
+      add :metadata, :map, default: %{}
+      add :content_hash, :string, null: false
+      timestamps(inserted_at: :created_at, updated_at: false)
+    end
+
+    create table(:#{prefix}evidence, primary_key: false) do
+      add :id, :binary_id, primary_key: true
+      add :entry_id, references(:#{prefix}entries, type: :binary_id, on_delete: :delete_all), null: false
+      add :event_id, references(:#{prefix}events, type: :binary_id, on_delete: :nilify_all)
+      add :relation, :string, null: false
+      add :excerpt, :text
+      add :source_type, :string
+      add :source_ref, :string
+      add :weight, :float, default: 1.0, null: false
+      add :created_at, :utc_datetime_usec, null: false
+    end
     """
   end
 
@@ -323,6 +355,20 @@ defmodule Recollect.MigrationGenerator do
 
     create index(:#{prefix}entry_tags, [:scope_id, :tag])
     create index(:#{prefix}entry_tags, [:tag])
+
+    create index(:#{prefix}events, [:owner_id, :occurred_at])
+    create index(:#{prefix}events, [:scope_id, :occurred_at])
+    create index(:#{prefix}events, [:session_id, :occurred_at])
+    create unique_index(:#{prefix}events, [:owner_id, :content_hash],
+      name: :"#{prefix}events_owner_content_hash_idx"
+    )
+
+    create index(:#{prefix}evidence, [:entry_id])
+    create index(:#{prefix}evidence, [:event_id])
+    create unique_index(:#{prefix}evidence, [:entry_id, :relation, :source_type, :source_ref],
+      name: :"#{prefix}evidence_unique_idx",
+      where: "source_ref IS NOT NULL"
+    )
     """
   end
 
