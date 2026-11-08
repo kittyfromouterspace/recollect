@@ -21,15 +21,18 @@ defmodule Recollect.Learning.Pipeline do
   """
 
   alias Recollect.Knowledge
+  alias Recollect.Learner.Git
   alias Recollect.Telemetry
 
-  @default_learners [Recollect.Learner.Git, Recollect.Learner.CodingAgent]
+  @default_learners [Git, Recollect.Learner.CodingAgent]
 
   @doc """
   Run learning from configured sources.
 
   ## Options
   - `:scope_id` - Required. The scope to learn for
+  - `:owner_id` - Owner attributed to ledger events (default: the scope_id,
+    since the pipeline has no user context of its own)
   - `:sources` - List of learner modules (default: all enabled)
   - `:since` - Learn from events since this time (default: "7 days ago")
   - `:dry_run` - If true, don't create entries (default: false)
@@ -43,6 +46,7 @@ defmodule Recollect.Learning.Pipeline do
   """
   def run(opts \\ []) do
     scope_id = Keyword.fetch!(opts, :scope_id)
+    owner_id = Keyword.get(opts, :owner_id)
     sources = Keyword.get(opts, :sources, enabled_learners())
     since = Keyword.get(opts, :since, "7 days ago")
     dry_run = Keyword.get(opts, :dry_run, false)
@@ -52,7 +56,7 @@ defmodule Recollect.Learning.Pipeline do
 
     results =
       sources
-      |> Task.async_stream(&run_learner(&1, scope_id, since, dry_run), max_concurrency: 2)
+      |> Task.async_stream(&run_learner(&1, scope_id, owner_id, since, dry_run), max_concurrency: 2)
       |> Enum.reduce(%{}, fn
         {:ok, {source, result}}, acc ->
           Telemetry.event(
@@ -102,7 +106,7 @@ defmodule Recollect.Learning.Pipeline do
 
   # Private
 
-  defp run_learner(learner_module, scope_id, since, dry_run) do
+  defp run_learner(learner_module, scope_id, owner_id, since, dry_run) do
     source = learner_module.source()
 
     case learner_module.fetch_since(since, scope_id) do
@@ -115,7 +119,8 @@ defmodule Recollect.Learning.Pipeline do
               if dry_run do
                 {[extract | learned], skipped}
               else
-                remember_extract(learner_module, extract, scope_id)
+                learner_module
+                |> remember_extract(extract, scope_id, owner_id)
                 |> learned_or_skipped({learned, skipped}, extract)
               end
 
@@ -138,7 +143,8 @@ defmodule Recollect.Learning.Pipeline do
               if dry_run do
                 {[extract | l], s}
               else
-                remember_extract(learner_module, extract, scope_id)
+                learner_module
+                |> remember_extract(extract, scope_id, owner_id)
                 |> learned_or_skipped({l, s}, extract)
               end
             end)
@@ -169,7 +175,16 @@ defmodule Recollect.Learning.Pipeline do
   # The pipeline also learned entries into the VOID for its whole life —
   # scope_id was never passed, so learned knowledge was invisible to scope
   # search. Both paths pass it now.
-  defp remember_extract(learner_module, extract, scope_id) do
+  #
+  # MEM-016: before remembering, the extract's raw material is written to
+  # the event ledger and the claim is bound to it as `derived_from`
+  # evidence — new claims are traceable. Disabled via
+  # `config :recollect, events: [enabled: false]` (records-only fallback);
+  # a failed event write also degrades to records-only rather than losing
+  # the learning.
+  defp remember_extract(learner_module, extract, scope_id, owner_id) do
+    evidence = record_learner_evidence(learner_module, extract, scope_id, owner_id)
+
     Knowledge.remember(extract.content,
       entry_type: Map.get(extract, :entry_type, :note),
       emotional_valence: Map.get(extract, :emotional_valence, :neutral),
@@ -178,16 +193,52 @@ defmodule Recollect.Learning.Pipeline do
       source: "system",
       source_id: extract_source_id(learner_module, extract),
       scope_id: scope_id,
+      evidence: evidence,
       dedupe: :skip
     )
   end
 
-  # Dedupe-skipped extracts count as skipped, not learned.
-  defp learned_or_skipped({:ok, %{dedupe_status: "skipped"}}, {learned, skipped}, _extract),
-    do: {learned, [skipped]}
+  defp record_learner_evidence(learner_module, extract, scope_id, owner_id) do
+    if Recollect.Config.events()[:enabled] == false do
+      []
+    else
+      case Recollect.Event.record(
+             owner_id: owner_id || scope_id,
+             scope_id: scope_id,
+             agent: to_string(learner_module.source()),
+             event_type: learner_event_type(learner_module),
+             content: extract.content,
+             source_ref: extract_source_id(learner_module, extract)
+           ) do
+        {:ok, event} ->
+          [
+            %{
+              relation: "derived_from",
+              event_id: event.id,
+              source_type: "event",
+              source_ref: event.source_ref
+            }
+          ]
 
-  defp learned_or_skipped({:ok, _entry}, {learned, skipped}, extract),
-    do: {[extract | learned], skipped}
+        {:error, reason} ->
+          require Logger
+
+          Logger.warning(
+            "Recollect.Learning.Pipeline: event write failed, falling back to records-only: #{inspect(reason)}"
+          )
+
+          []
+      end
+    end
+  end
+
+  defp learner_event_type(Git), do: "commit"
+  defp learner_event_type(_), do: "message"
+
+  # Dedupe-skipped extracts count as skipped, not learned.
+  defp learned_or_skipped({:ok, %{dedupe_status: "skipped"}}, {learned, skipped}, _extract), do: {learned, [skipped]}
+
+  defp learned_or_skipped({:ok, _entry}, {learned, skipped}, extract), do: {[extract | learned], skipped}
 
   defp learned_or_skipped(_error, {learned, skipped}, _extract), do: {learned, skipped}
 
@@ -202,7 +253,8 @@ defmodule Recollect.Learning.Pipeline do
 
   defp content_source_id(learner_module, extract) do
     hash =
-      :crypto.hash(:sha256, extract.content)
+      :sha256
+      |> :crypto.hash(extract.content)
       |> Base.encode16(case: :lower)
       |> binary_part(0, 16)
 

@@ -67,7 +67,8 @@ defmodule Recollect.Learner.Harvest do
           content: String.t(),
           tags: [String.t()],
           metadata: map(),
-          entry_type: atom() | String.t()
+          entry_type: atom() | String.t(),
+          events: [map()]
         }
 
   @doc "Run a harvest pass. See the moduledoc for the option list."
@@ -222,7 +223,8 @@ defmodule Recollect.Learner.Harvest do
             content: extract.content,
             tags: Map.get(extract, :tags, []),
             metadata: Map.get(extract, :metadata, %{}),
-            entry_type: Map.get(extract, :entry_type, :note)
+            entry_type: Map.get(extract, :entry_type, :note),
+            events: record_events(event, extract)
           }
         ]
 
@@ -230,6 +232,52 @@ defmodule Recollect.Learner.Harvest do
         []
     end
   end
+
+  # MEM-016: the raw transcript material travels WITH the record so a
+  # DB-side sink can persist the event ledger and bind evidence to the
+  # claim. Consent is enforced upstream (the run never reaches extraction
+  # for an unconsented provider), and dry-runs never persist anything.
+  defp record_events(event, extract) do
+    session_id = Map.get(event, :session_id)
+    agent = to_string(Map.get(event, :agent))
+
+    source_ref =
+      if is_binary(session_id) and session_id != "",
+        do: "session:#{session_id}"
+
+    [
+      %{
+        event_type: "message",
+        role: "user",
+        agent: agent,
+        content: raw_event_content(event, extract),
+        occurred_at: Map.get(event, :occurred_at),
+        session_id: session_id,
+        source_ref: source_ref,
+        source_uri: Map.get(event, :source_uri)
+      }
+    ]
+  end
+
+  defp raw_event_content(event, extract) do
+    prompts = Map.get(event, :user_prompts)
+
+    case prompts do
+      list when is_list(list) and list != [] ->
+        list
+        |> Enum.map_join("\n---\n", &prompt_text/1)
+        |> String.trim()
+
+      _ ->
+        extract.content
+    end
+  end
+
+  defp prompt_text(prompt) when is_binary(prompt), do: prompt
+  defp prompt_text(%{text: t}) when is_binary(t), do: t
+  defp prompt_text(%{"text" => t}) when is_binary(t), do: t
+  defp prompt_text(%{content: c}) when is_binary(c), do: c
+  defp prompt_text(_), do: ""
 
   # MEM-015: every record carries a stable identity so a host sink can
   # re-run the same session without duplicating — agent + origin + session

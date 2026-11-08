@@ -36,7 +36,8 @@ defmodule Recollect.HarvestTest do
     absent = Path.join(tmp, "absent")
 
     agent_configs =
-      Map.new([:claude_code, :opencode, :gemini], &{&1, %{data_paths: [absent]}})
+      [:claude_code, :opencode, :gemini]
+      |> Map.new(&{&1, %{data_paths: [absent]}})
       |> Map.put(:codex, %{data_paths: [sessions]})
 
     {:ok, tmp: tmp, base_opts: [agents: [:codex], agent_configs: agent_configs]}
@@ -87,6 +88,34 @@ defmodule Recollect.HarvestTest do
       assert_raise ArgumentError, ~r/project is required/, fn ->
         Harvest.run([sink: :collect, consent: :off] ++ opts)
       end
+    end
+  end
+
+  describe "events in records (MEM-016)" do
+    test "records carry the raw transcript material", %{base_opts: opts} do
+      Consent.grant(:codex)
+
+      result = Harvest.run([project: "mark_mesh", sink: :collect, consent: :off] ++ opts)
+
+      assert result.count > 0
+
+      for record <- result.records do
+        assert record.events != []
+        event = hd(record.events)
+        assert event.event_type == "message"
+        assert event.agent == "codex"
+        assert event.source_ref == "session:00-00-00-mark_mesh"
+        assert event.content =~ "fix the bulletin parser"
+      end
+    end
+
+    test "a denied provider produces no records and therefore no events", %{base_opts: opts} do
+      Consent.deny(:codex)
+
+      result = Harvest.run([project: "mark_mesh", sink: :collect, consent: :enforce] ++ opts)
+
+      assert result.count == 0
+      assert result.records == []
     end
   end
 
@@ -205,7 +234,9 @@ defmodule Recollect.HarvestTest do
     test "signal words raise the score, capped at 1.0" do
       plain = Harvest.importance("ok")
       signalled = Harvest.importance("root cause: the fix, because we must always avoid it")
-      huge = Harvest.importance("because decision decided fix fixed trap gotcha never always must avoid root cause lesson")
+
+      huge =
+        Harvest.importance("because decision decided fix fixed trap gotcha never always must avoid root cause lesson")
 
       assert signalled > plain
       assert huge == 1.0

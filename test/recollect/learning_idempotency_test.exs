@@ -14,8 +14,12 @@ defmodule Recollect.LearningIdempotencyTest do
 
   alias Recollect.Knowledge
   alias Recollect.Learner.Checkpoint.File, as: FileCheckpoint
+  alias Recollect.Learner.Git
   alias Recollect.Learner.Harvest
+  alias Recollect.Learning.Pipeline
   alias Recollect.Schema.Entry
+  alias Recollect.Schema.Event, as: EventRow
+  alias Recollect.Schema.Evidence
 
   describe "ingest_batch/2 (MEM-015)" do
     test "batch with duplicate records: one inserted, one skipped" do
@@ -263,6 +267,138 @@ defmodule Recollect.LearningIdempotencyTest do
 
       assert second.count == 0
       assert second.records == []
+    end
+  end
+
+  describe "pipeline writes events + evidence (MEM-016)" do
+    test "learned entries are bound to ledger events via derived_from evidence" do
+      scope_id = Fixtures.scope_id()
+      owner_id = Fixtures.owner_id()
+
+      assert {:ok, %{results: _}} =
+               Pipeline.run(
+                 scope_id: scope_id,
+                 owner_id: owner_id,
+                 sources: [Git],
+                 since: "7 days ago"
+               )
+
+      entries = Config.repo().all(from(e in Entry, where: e.scope_id == ^scope_id))
+      assert entries != []
+
+      entry_ids = Enum.map(entries, & &1.id)
+
+      evidence =
+        Config.repo().all(
+          from(ev in Evidence,
+            where: ev.entry_id in ^entry_ids and ev.relation == "derived_from"
+          )
+        )
+
+      assert evidence != []
+      assert Enum.all?(entries, fn e -> Enum.any?(evidence, &(&1.entry_id == e.id)) end)
+
+      event_ids = Enum.map(evidence, & &1.event_id)
+      events = Config.repo().all(from(e in EventRow, where: e.id in ^event_ids))
+      assert Enum.all?(events, &(&1.event_type == "commit" and &1.source_ref =~ "git:commit:"))
+    end
+
+    test "events.enabled: false degrades to records-only (no events, no evidence)" do
+      scope_id = Fixtures.scope_id()
+      owner_id = Fixtures.owner_id()
+      previous = Application.get_env(:recollect, :events)
+
+      Application.put_env(:recollect, :events, enabled: false)
+
+      try do
+        assert {:ok, %{results: _}} =
+                 Pipeline.run(
+                   scope_id: scope_id,
+                   owner_id: owner_id,
+                   sources: [Git],
+                   since: "7 days ago"
+                 )
+
+        assert Config.repo().aggregate(EventRow, :count, :id) == 0
+        assert Config.repo().aggregate(Evidence, :count, :id) == 0
+      after
+        if previous,
+          do: Application.put_env(:recollect, :events, previous),
+          else: Application.delete_env(:recollect, :events)
+      end
+    end
+
+    test "oversized event content is truncated and marked" do
+      previous = Application.get_env(:recollect, :events)
+      Application.put_env(:recollect, :events, max_content_bytes: 64)
+
+      big = String.duplicate("λ", 60)
+
+      try do
+        {:ok, event} =
+          Recollect.Event.record(
+            owner_id: Fixtures.owner_id(),
+            event_type: "message",
+            content: big
+          )
+
+        assert byte_size(event.content) > 64
+        assert event.content =~ "[recollect: truncated"
+        assert event.content =~ "events.max_content_bytes=64"
+        assert String.valid?(event.content)
+      after
+        if previous,
+          do: Application.put_env(:recollect, :events, previous),
+          else: Application.delete_env(:recollect, :events)
+      end
+    end
+
+    test "denied provider writes no events (consent gate upstream)" do
+      scope_id = Fixtures.scope_id()
+
+      tmp = Path.join(System.tmp_dir!(), "denied-consent-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(tmp)
+
+      sessions = Path.join(tmp, "codex")
+      File.mkdir_p!(Path.join(sessions, "sessions"))
+
+      write_session(
+        Path.join(sessions, "sessions"),
+        "denied_proj",
+        "/home/lenz/code/denied_proj",
+        "should not be harvested"
+      )
+
+      absent = Path.join(tmp, "absent")
+
+      agent_configs =
+        [:claude_code, :opencode, :gemini]
+        |> Map.new(&{&1, %{data_paths: [absent]}})
+        |> Map.put(:codex, %{data_paths: [sessions]})
+
+      previous_home = System.get_env("RECOLLECT_HOME")
+      System.put_env("RECOLLECT_HOME", Path.join(tmp, "recollect_home"))
+      Recollect.Learner.Consent.deny(:codex)
+
+      on_exit(fn ->
+        if previous_home,
+          do: System.put_env("RECOLLECT_HOME", previous_home),
+          else: System.delete_env("RECOLLECT_HOME")
+
+        File.rm_rf!(tmp)
+      end)
+
+      result =
+        Harvest.run(
+          project: "denied_proj",
+          sink: :collect,
+          node_id: "tester@denied",
+          agent_configs: agent_configs
+        )
+
+      assert result.count == 0
+      assert result.records == []
+      assert Config.repo().aggregate(EventRow, :count, :id) == 0
     end
   end
 

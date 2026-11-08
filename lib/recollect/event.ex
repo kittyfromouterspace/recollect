@@ -37,7 +37,7 @@ defmodule Recollect.Event do
   def record(opts) when is_list(opts) do
     event_type = opts[:event_type]
     owner_id = Util.uuid_to_string(opts[:owner_id])
-    content = opts[:content]
+    content = truncate_to_cap(opts[:content])
     source_uri = opts[:source_uri]
     source_ref = opts[:source_ref]
     content_hash = content_hash(content, source_uri, source_ref)
@@ -228,6 +228,34 @@ defmodule Recollect.Event do
       parts ->
         joined = Enum.join(parts, "\u0000")
         :sha256 |> :crypto.hash(joined) |> Base.encode16(case: :lower)
+    end
+  end
+
+  # MEM-016: enforce events.max_content_bytes at write time — oversized
+  # content is truncated WITH a marker, never silently dropped. The cap is
+  # byte-based; the cut backs off to a valid UTF-8 boundary.
+  defp truncate_to_cap(nil), do: nil
+
+  defp truncate_to_cap(content) when is_binary(content) do
+    case Config.events()[:max_content_bytes] do
+      cap when is_integer(cap) and cap > 0 and byte_size(content) > cap ->
+        kept = valid_utf8_prefix(binary_part(content, 0, cap))
+
+        kept <>
+          "\n[recollect: truncated #{byte_size(content) - byte_size(kept)} bytes at events.max_content_bytes=#{cap}]"
+
+      _ ->
+        content
+    end
+  end
+
+  defp truncate_to_cap(other), do: other
+
+  defp valid_utf8_prefix(bin) do
+    if String.valid?(bin) do
+      bin
+    else
+      valid_utf8_prefix(binary_part(bin, 0, byte_size(bin) - 1))
     end
   end
 
