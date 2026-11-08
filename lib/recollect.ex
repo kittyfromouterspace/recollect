@@ -278,6 +278,16 @@ defmodule Recollect do
     Recollect.Event.prune(opts)
   end
 
+  @doc "Review candidates with reasons and suggested actions (see `Recollect.Review.candidates/2`)."
+  def review(scope_id, opts \\ []) do
+    Recollect.Review.candidates(scope_id, opts)
+  end
+
+  @doc "Explain why an entry exists (evidence, usage, verification, supersession)."
+  def explain(entry_id) do
+    Recollect.Review.explain(entry_id)
+  end
+
   @doc """
   Archive stale entries based on access patterns.
 

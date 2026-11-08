@@ -455,6 +455,16 @@ defmodule Recollect.Knowledge do
     end)
   end
 
+  @doc "Review candidates for a scope; see `Recollect.Review.candidates/2`."
+  def review(scope_id, opts \\ []) do
+    Recollect.Review.candidates(scope_id, opts)
+  end
+
+  @doc "Explain why an entry exists; see `Recollect.Review.explain/1`."
+  def explain(entry_id) do
+    Recollect.Review.explain(entry_id)
+  end
+
   @doc "Create an edge between two entries."
   def connect(source_id, target_id, relation, opts \\ []) do
     Recollect.Telemetry.span([:recollect, :connect], %{relation: relation}, fn ->
