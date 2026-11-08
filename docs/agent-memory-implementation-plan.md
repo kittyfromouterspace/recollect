@@ -3348,7 +3348,8 @@ the live status column.
 | 2026-11-07 | MEM-009 | B-2578 | `2ea632f` | mipmaps.mode (:lazy default); batched level embeddings; query_embedding passthrough; archived excluded |
 | 2026-11-07 | MEM-010 | B-2579 | `f00a259` | detect_cached TTL cache; context_detection.mode; remember context: opt |
 | 2026-11-07 | MEM-012 | B-2581 | `f2d492b` |
-| 2026-11-08 | MEM-011 | B-2580 | `df74320` | Backend parity: six modules Ecto-ized (portable CASE/LOWER); Conflict/Handoff/ConsolidationRun schemas; counter SQLite per-row flush; $N ratchet test; feature matrix; minimal CI (PG only) | since threaded; (source,source_id) dedupe; pipeline passes scope_id; suite fully green (272/0) |
+| 2026-11-08 | MEM-011 | B-2580 | `df74320` | Backend parity: six modules Ecto-ized (portable CASE/LOWER); Conflict/Handoff/ConsolidationRun schemas; counter SQLite per-row flush; $N ratchet test; feature matrix; minimal CI (PG only); since threaded; (source,source_id) dedupe; pipeline passes scope_id; suite fully green (272/0) |
+| 2026-11-08 | MEM-013 | B-2582 | `907a06a` | Event ledger + evidence tables; record/1 SHA-256 dedupe (stable, race-rescued — Ecto can't report DO NOTHING on changeset inserts); list/2 since/until/session/type+limit/order; prune retention on occurred_at, evidence-shielded, NOT IN NULL-safe; Evidence.link/3 dedupe + typed errors; generator + facade; 290/0 |
 
 ---
 
@@ -3368,7 +3369,7 @@ the live status column.
 | MEM-010 | Context detection cache | 0 | 1 | — | B-2579 | implemented_local |
 | MEM-011 | Backend parity | 0 | 2.5 | 004, 007 | B-2580 | implemented_local |
 | MEM-012 | Learning `since` + dedup | 0 | 1.5 | 005 | B-2581 | implemented_local |
-| MEM-013 | Events + evidence tables | 1 | 4 | 005 | B-2582 | open |
+| MEM-013 | Events + evidence tables | 1 | 4 | 005 | B-2582 | implemented_local |
 | MEM-014 | Entry lifecycle fields | 1 | 2.5 | 013 | B-2583 | open |
 | MEM-015 | Idempotent ingestion | 1 | 2 | 012, 014 | B-2584 | open |
 | MEM-016 | Learning writes events | 1 | 3 | 013, 015 | B-2585 | open |
