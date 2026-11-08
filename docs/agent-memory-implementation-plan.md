@@ -3362,6 +3362,7 @@ the live status column.
 | 2026-11-08 | MEM-021 | B-2590 | `1b97a32` | recollect_recall_anchors (unique per entry+type+value) + Recall.index/for_path (exact>prefix>basename)/for_symbol/backfill; Search anchors: [path:] modest boost + append-missed (boost_entries/4); facade delegates; page_id FK deferred to MEM-027; 368/0 |
 | 2026-11-08 | MEM-022 | B-2591 | `36625ce` | Handoff.create budgeted (string/list/budget caps with explicit markers, what never dropped); load_handoff bounded to max_items_per_section below session-note importance; WorkingMemory.Server.drain atomic swap; Sleep.promote drains, re-inserts only failed items, promoted provenance (source sleep + sleep:<id>); Config.brief/0; 375/0 |
 | 2026-11-08 | MEM-040 | B-2592 | `870e24a` | Durable staging tier: recollect_staging + Staging.stage/drain (PG SKIP LOCKED, disjoint concurrent claims)/restage/prune (retention + backlog caps, secret guard at stage); Sleep.promote from_staging with restage-on-failure; WorkingMemory deprecated (ephemeral, warns once, removal 1.0); 383/0 |
+| 2026-11-08 | — | v0.8.0 | `18208a5` | Released v0.8.0 (tag on mem-phase0; Hex publish deferred) — Phase 2 brief + recall (the plan sketched this phase as 0.9.0; ordering-preserving minor used since phase 1 shipped as 0.7.0); full mix check green (clean compile, format, 383/0) |
 
 ---
 
