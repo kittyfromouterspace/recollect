@@ -3359,6 +3359,7 @@ the live status column.
 | 2026-11-08 | MEM-018 | B-2587 | `f18c8ef` | Tokenizer.estimate/1 (ceil chars/4, tokenizer_fn override) + Budget.fit/3 (priority>score>recency ranking, greedy packing past non-fitting items, whole-item drops, 10% reserve, :tokens_key opt, missing tokens raise); 340/0 |
 | 2026-11-08 | MEM-019 | B-2588 | `90ce5be` | Recollect.Brief: sectioned selector (rules/focus/traps/open questions/index, precedence dedupe, verification>stability>retrieval>recency ranking), markdown/text/json renderer with per-item citations and budget header, ETS cache keyed (scope, generation, budget) bumped by remember/forget/supersede via Brief.invalidate; facade brief/2; 350/0 |
 | 2026-11-08 | MEM-020 | B-2589 | `f1f3c93` | ContextFormatter format/2 (:max_tokens via Budget.fit, :dedupe entries-vs-related, :citations e/c/p/r, :format text|markdown) + format_with_meta/2 metadata; format/1 golden-pinned byte-identical; unified item list with summary-over-content; 359/0 |
+| 2026-11-08 | MEM-021 | B-2590 | `1b97a32` | recollect_recall_anchors (unique per entry+type+value) + Recall.index/for_path (exact>prefix>basename)/for_symbol/backfill; Search anchors: [path:] modest boost + append-missed (boost_entries/4); facade delegates; page_id FK deferred to MEM-027; 368/0 |
 
 ---
 
@@ -3386,7 +3387,7 @@ the live status column.
 | MEM-018 | Tokenizer + budget | 2 | 2 | — | B-2587 | implemented_local |
 | MEM-019 | Brief | 2 | 4 | 014, 018 | B-2588 | implemented_local |
 | MEM-020 | ContextFormatter budget | 2 | 2 | 018, 019 | B-2589 | implemented_local |
-| MEM-021 | Recall anchors | 2 | 4 | 014, 018 | B-2590 | open |
+| MEM-021 | Recall anchors | 2 | 4 | 014, 018 | B-2590 | implemented_local |
 | MEM-022 | Handoff/WorkingMemory | 2 | 2 | 019 | B-2591 | open |
 | MEM-023 | Dream orchestrator | 3 | 5 | 013, 014, 017 | B-2593 | open |
 | MEM-024 | Dream verify | 3 | 5 | 023 | B-2594 | open |
