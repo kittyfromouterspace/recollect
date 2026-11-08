@@ -180,9 +180,6 @@ defmodule Recollect.Brief.Selector do
 
   defp rank_parts(:handoff, row), do: {50, row[:created_at] || row[:updated_at]}
 
-  defp row_recency(%Entry{} = e), do: e.inserted_at
-  defp row_recency(%{} = h), do: h[:updated_at] || h[:created_at]
-
   defp item_id({:entry, %Entry{id: id}}), do: id
   defp item_id({:handoff, %{id: id}}), do: id
 
