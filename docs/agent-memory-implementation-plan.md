@@ -3358,6 +3358,7 @@ the live status column.
 | 2026-11-08 | — | v0.7.0 | `cf80a5b` | Released v0.7.0 (tag on mem-phase0; Hex publish deferred) — phase 0 + phase 1, 20/40 tickets; full mix check green (clean compile, format, 328/0). Tag hash note: 6658d50 was amended to 9d67d4c when the other five drifted files joined the format chore |
 | 2026-11-08 | MEM-018 | B-2587 | `f18c8ef` | Tokenizer.estimate/1 (ceil chars/4, tokenizer_fn override) + Budget.fit/3 (priority>score>recency ranking, greedy packing past non-fitting items, whole-item drops, 10% reserve, :tokens_key opt, missing tokens raise); 340/0 |
 | 2026-11-08 | MEM-019 | B-2588 | `90ce5be` | Recollect.Brief: sectioned selector (rules/focus/traps/open questions/index, precedence dedupe, verification>stability>retrieval>recency ranking), markdown/text/json renderer with per-item citations and budget header, ETS cache keyed (scope, generation, budget) bumped by remember/forget/supersede via Brief.invalidate; facade brief/2; 350/0 |
+| 2026-11-08 | MEM-020 | B-2589 | `f1f3c93` | ContextFormatter format/2 (:max_tokens via Budget.fit, :dedupe entries-vs-related, :citations e/c/p/r, :format text|markdown) + format_with_meta/2 metadata; format/1 golden-pinned byte-identical; unified item list with summary-over-content; 359/0 |
 
 ---
 
@@ -3384,7 +3385,7 @@ the live status column.
 | MEM-017 | Review + explain | 1 | 2.5 | 013, 014 | B-2586 | implemented_local |
 | MEM-018 | Tokenizer + budget | 2 | 2 | — | B-2587 | implemented_local |
 | MEM-019 | Brief | 2 | 4 | 014, 018 | B-2588 | implemented_local |
-| MEM-020 | ContextFormatter budget | 2 | 2 | 018, 019 | B-2589 | open |
+| MEM-020 | ContextFormatter budget | 2 | 2 | 018, 019 | B-2589 | implemented_local |
 | MEM-021 | Recall anchors | 2 | 4 | 014, 018 | B-2590 | open |
 | MEM-022 | Handoff/WorkingMemory | 2 | 2 | 019 | B-2591 | open |
 | MEM-023 | Dream orchestrator | 3 | 5 | 013, 014, 017 | B-2593 | open |
