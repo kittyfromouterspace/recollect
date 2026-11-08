@@ -3356,6 +3356,7 @@ the live status column.
 | 2026-11-08 | MEM-017 | B-2586 | `bdbff51` | Recollect.Review: candidates/2 (six reasons per plan + suggested-action precedence, most-flagged first) + explain/1 (evidence, usage, verification, supersedes directions, human :why); Knowledge.review/explain + facade delegates; telemetry spans; 328/0 |
 | 2026-11-08 | — | B-2570 | `6658d50` | chore(format): pipeline_quarantine_test.exs — last pre-existing drift; format leg of mix check green repo-wide again |
 | 2026-11-08 | — | v0.7.0 | `cf80a5b` | Released v0.7.0 (tag on mem-phase0; Hex publish deferred) — phase 0 + phase 1, 20/40 tickets; full mix check green (clean compile, format, 328/0). Tag hash note: 6658d50 was amended to 9d67d4c when the other five drifted files joined the format chore |
+| 2026-11-08 | MEM-018 | B-2587 | `f18c8ef` | Tokenizer.estimate/1 (ceil chars/4, tokenizer_fn override) + Budget.fit/3 (priority>score>recency ranking, greedy packing past non-fitting items, whole-item drops, 10% reserve, :tokens_key opt, missing tokens raise); 340/0 |
 
 ---
 
@@ -3380,7 +3381,7 @@ the live status column.
 | MEM-015 | Idempotent ingestion | 1 | 2 | 012, 014 | B-2584 | implemented_local |
 | MEM-016 | Learning writes events | 1 | 3 | 013, 015 | B-2585 | implemented_local |
 | MEM-017 | Review + explain | 1 | 2.5 | 013, 014 | B-2586 | implemented_local |
-| MEM-018 | Tokenizer + budget | 2 | 2 | — | B-2587 | open |
+| MEM-018 | Tokenizer + budget | 2 | 2 | — | B-2587 | implemented_local |
 | MEM-019 | Brief | 2 | 4 | 014, 018 | B-2588 | open |
 | MEM-020 | ContextFormatter budget | 2 | 2 | 018, 019 | B-2589 | open |
 | MEM-021 | Recall anchors | 2 | 4 | 014, 018 | B-2590 | open |
