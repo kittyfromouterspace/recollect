@@ -59,6 +59,7 @@ defmodule Recollect.MigrationGenerator do
     prefix = Keyword.get(opts, :table_prefix, "recollect_")
 
     """
+    drop table(:#{prefix}staging)
     drop table(:#{prefix}recall_anchors)
     drop table(:#{prefix}evidence)
     drop table(:#{prefix}events)
@@ -317,6 +318,19 @@ defmodule Recollect.MigrationGenerator do
       add :confidence, :float, default: 0.5, null: false
       add :created_at, :utc_datetime_usec, null: false
     end
+
+    create table(:#{prefix}staging, primary_key: false) do
+      add :id, :binary_id, primary_key: true
+      add :owner_id, #{inspect(uuid_type_atom)}, null: false
+      add :scope_id, #{inspect(uuid_type_atom)}, null: false
+      add :content, :text, null: false
+      add :metadata, :map, default: %{}
+      add :source, :string
+      add :priority, :float, default: 0.5, null: false
+      add :status, :string, null: false, default: "staged"
+      add :inserted_at, :utc_datetime_usec, null: false, default: fragment("#{now_default(adapter)}")
+      add :drained_at, :utc_datetime_usec
+    end
     """
   end
 
@@ -403,6 +417,14 @@ defmodule Recollect.MigrationGenerator do
 
     create unique_index(:#{prefix}recall_anchors, [:entry_id, :anchor_type, :anchor_value],
       name: :"#{prefix}recall_anchors_unique_idx"
+    )
+
+    create index(:#{prefix}staging, [:scope_id, :status, :inserted_at],
+      name: :"#{prefix}staging_scope_idx"
+    )
+
+    create index(:#{prefix}staging, [:status, :drained_at],
+      name: :"#{prefix}staging_retention_idx"
     )
     """
   end

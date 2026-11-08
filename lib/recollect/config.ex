@@ -210,6 +210,14 @@ defmodule Recollect.Config do
     Application.get_env(:recollect, :events, [])
   end
 
+  @doc "The `:staging` option group (`config :recollect, staging: [...]`).
+
+  Recognized keys: `:retention_days` (drained-row GC horizon, default 7)
+  and `:max_items` (per-scope staged backlog cap, default 1000)."
+  def staging do
+    Application.get_env(:recollect, :staging, [])
+  end
+
   @doc "The `:brief` option group (`config :recollect, brief: [...]`).
 
   Recognized keys: `:token_budget` (handoff budget checks, default 1500),

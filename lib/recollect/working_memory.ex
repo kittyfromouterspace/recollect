@@ -1,16 +1,40 @@
 defmodule Recollect.WorkingMemory do
   @moduledoc """
-  Working memory layer (Tier 0).
+  Working memory layer (Tier 0). **Deprecated — removal scheduled for 1.0.**
 
   A bounded buffer for current-session notes, separate from long-term
   knowledge. Session-scoped, no embeddings, importance-based eviction.
 
   Implemented as a GenServer per scope via DynamicSupervisor.
+
+  **Ephemeral and not replicated:** the buffer lives in one node's RAM and
+  dies with it. For anything that must survive a restart or work across a
+  fleet, use `Recollect.Staging` (MEM-040) — the durable staging tier this
+  module is superseded by. Every public function here emits a deprecation
+  warning; hosts should move to `Staging.stage/3` + `Staging.drain/2` (or
+  `Sleep.promote(from_staging: true)`).
   """
 
   alias Recollect.WorkingMemory.Server
 
   @default_max 20
+  @deprecated_key :recollect_working_memory_deprecation_logged
+
+  defp warn_deprecated do
+    if :persistent_term.get(@deprecated_key, false) do
+      :ok
+    else
+      require Logger
+
+      Logger.warning(
+        "Recollect.WorkingMemory is deprecated (ephemeral, not replicated) — " <>
+          "use Recollect.Staging instead; removal scheduled for 1.0"
+      )
+
+      :persistent_term.put(@deprecated_key, true)
+      :ok
+    end
+  end
 
   @doc """
   Push a new entry into working memory for a scope.
@@ -23,6 +47,7 @@ defmodule Recollect.WorkingMemory do
   - `:metadata` - Map, default %{}
   """
   def push(scope_id, content, opts \\ []) do
+    warn_deprecated()
     pid = ensure_scope(scope_id)
     Server.push(pid, content, opts)
   end
@@ -31,6 +56,8 @@ defmodule Recollect.WorkingMemory do
   Read working memory entries for a scope, sorted by importance DESC.
   """
   def read(scope_id, opts \\ []) do
+    warn_deprecated()
+
     case whereis_scope(scope_id) do
       nil -> {:ok, []}
       pid -> Server.read(pid, opts)
@@ -41,6 +68,8 @@ defmodule Recollect.WorkingMemory do
   Clear working memory for a scope and terminate the GenServer.
   """
   def clear(scope_id) do
+    warn_deprecated()
+
     case whereis_scope(scope_id) do
       nil ->
         {:ok, 0}
@@ -66,7 +95,10 @@ defmodule Recollect.WorkingMemory do
   end
 
   @doc "Semantic alias for clear, used at session boundaries."
-  def flush(scope_id), do: clear(scope_id)
+  def flush(scope_id) do
+    warn_deprecated()
+    clear(scope_id)
+  end
 
   @doc """
   Load handoff into working memory on session resume.
@@ -82,6 +114,7 @@ defmodule Recollect.WorkingMemory do
   def load_handoff(scope_id) do
     alias Recollect.Telemetry
 
+    warn_deprecated()
     max_items = Recollect.Config.brief()[:max_items_per_section] || 5
 
     case Recollect.Handoff.get(scope_id) do
