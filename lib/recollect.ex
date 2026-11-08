@@ -278,6 +278,11 @@ defmodule Recollect do
     Recollect.Event.prune(opts)
   end
 
+  @doc "Build the budgeted, cited memory brief for a scope (see `Recollect.Brief.build/2`)."
+  def brief(scope_id, opts \\ []) do
+    Recollect.Brief.build(scope_id, opts)
+  end
+
   @doc "Review candidates with reasons and suggested actions (see `Recollect.Review.candidates/2`)."
   def review(scope_id, opts \\ []) do
     Recollect.Review.candidates(scope_id, opts)

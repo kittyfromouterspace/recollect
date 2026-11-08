@@ -135,6 +135,8 @@ defmodule Recollect.Knowledge do
       {:ok, entry} ->
         Embedder.embed_entry_async(entry)
         SchemaFit.refine_content_fit_async(entry.id, content, scope_id)
+        # The brief cache must never outlive the facts it cites (MEM-019).
+        Recollect.Brief.invalidate(entry.scope_id)
         {:ok, entry}
 
       {:error, changeset} ->
@@ -444,13 +446,17 @@ defmodule Recollect.Knowledge do
           {:error, :not_found}
 
         entry ->
-          if Keyword.get(opts, :hard, false) do
-            repo.delete(entry)
-          else
-            entry
-            |> Ecto.Changeset.change(deleted_at: DateTime.utc_now())
-            |> repo.update()
-          end
+          result =
+            if Keyword.get(opts, :hard, false) do
+              repo.delete(entry)
+            else
+              entry
+              |> Ecto.Changeset.change(deleted_at: DateTime.utc_now())
+              |> repo.update()
+            end
+
+          Recollect.Brief.invalidate(entry.scope_id)
+          result
       end
     end)
   end
@@ -576,9 +582,9 @@ defmodule Recollect.Knowledge do
                   %{metadata: metadata, half_life_days: superseded_half_life(opts), confidence: 0.0}
                 end
 
-              old
-              |> Entry.changeset(attrs)
-              |> repo.update()
+              result = old |> Entry.changeset(attrs) |> repo.update()
+              Recollect.Brief.invalidate(old.scope_id)
+              result
             end
         end
       end
