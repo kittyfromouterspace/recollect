@@ -39,7 +39,9 @@ defmodule Recollect.BackendParityTest do
     "generator.ex" => "mipmap persist/retrieve branch on dialect",
     "embedder.ex" => "store_embedding/update_summary branch on dialect",
     "retrieval_counter.ex" => "bulk unnest UPDATE is the :postgres branch; other dialects take the per-row path",
-    "reembed.ex" => "dialect-branched embedding UPDATE"
+    "reembed.ex" => "dialect-branched embedding UPDATE",
+    "dream.ex" =>
+      "advisory-lock session SQL is the :postgres branch (try/wait); SQLite/libSQL takes the :global.trans path"
   }
 
   test "converted modules contain no raw SQL" do

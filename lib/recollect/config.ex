@@ -211,11 +211,19 @@ defmodule Recollect.Config do
   end
 
   @doc "The `:staging` option group (`config :recollect, staging: [...]`).
-
   Recognized keys: `:retention_days` (drained-row GC horizon, default 7)
   and `:max_items` (per-scope staged backlog cap, default 1000)."
   def staging do
     Application.get_env(:recollect, :staging, [])
+  end
+
+  @doc "The `:dream` option group (`config :recollect, dream: [...]`).
+
+  Recognized keys: `:enabled` (dream toggle), `:max_wall_ms` (run wall
+  budget, default 30000), `:lock_wait_ms` (advisory-lock wait, default 0
+  = try-only), `:max_items` (per-stage item cap passed to stages)."
+  def dream do
+    Application.get_env(:recollect, :dream, [])
   end
 
   @doc "The `:brief` option group (`config :recollect, brief: [...]`).
