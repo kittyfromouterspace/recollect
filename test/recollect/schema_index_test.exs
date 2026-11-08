@@ -1,6 +1,10 @@
 defmodule Recollect.SchemaIndexTest do
   use Recollect.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
+
+  alias Recollect.Config
+  alias Recollect.Schema.Entry
   alias Recollect.SchemaIndex
 
   setup do
@@ -38,6 +42,10 @@ defmodule Recollect.SchemaIndexTest do
     end
 
     test "scoped lookup falls back to the global aggregate" do
+      # residue-proof: the global aggregate must reflect exactly what this
+      # test sees, so wipe anything committed outside the sandbox first
+      Config.repo().delete_all(Entry)
+
       scope_id = Fixtures.scope_id()
       tagged_entry(scope_id, ["billing"])
 
