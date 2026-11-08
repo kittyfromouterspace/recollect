@@ -59,6 +59,7 @@ defmodule Recollect.MigrationGenerator do
     prefix = Keyword.get(opts, :table_prefix, "recollect_")
 
     """
+    drop table(:#{prefix}recall_anchors)
     drop table(:#{prefix}evidence)
     drop table(:#{prefix}events)
     drop table(:#{prefix}handoffs)
@@ -307,6 +308,15 @@ defmodule Recollect.MigrationGenerator do
       add :weight, :float, default: 1.0, null: false
       add :created_at, :utc_datetime_usec, null: false
     end
+
+    create table(:#{prefix}recall_anchors, primary_key: false) do
+      add :id, :binary_id, primary_key: true
+      add :entry_id, references(:#{prefix}entries, type: :binary_id, on_delete: :delete_all)
+      add :anchor_type, :string, null: false
+      add :anchor_value, :string, null: false
+      add :confidence, :float, default: 0.5, null: false
+      add :created_at, :utc_datetime_usec, null: false
+    end
     """
   end
 
@@ -383,6 +393,16 @@ defmodule Recollect.MigrationGenerator do
     create unique_index(:#{prefix}evidence, [:entry_id, :relation, :source_type, :source_ref],
       name: :"#{prefix}evidence_unique_idx",
       where: "source_ref IS NOT NULL"
+    )
+
+    create index(:#{prefix}recall_anchors, [:anchor_type, :anchor_value],
+      name: :"#{prefix}recall_anchors_lookup_idx"
+    )
+
+    create index(:#{prefix}recall_anchors, [:entry_id])
+
+    create unique_index(:#{prefix}recall_anchors, [:entry_id, :anchor_type, :anchor_value],
+      name: :"#{prefix}recall_anchors_unique_idx"
     )
     """
   end

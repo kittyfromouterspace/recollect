@@ -3,6 +3,7 @@ defmodule Recollect.Search do
   Unified search combining vector similarity, graph traversal, and edge following.
   """
 
+  alias Recollect.Recall
   alias Recollect.Search.Graph
   alias Recollect.Search.Vector
 
@@ -41,6 +42,20 @@ defmodule Recollect.Search do
         # Separate by type
         chunks = Enum.filter(vector_results, &(&1[:result_type] == :chunk))
         entries = Enum.filter(vector_results, &(&1[:result_type] == :entry))
+
+        # MEM-021: `anchors: [path: ...]` gives anchored entries a modest
+        # score boost and appends anchored entries the vector search missed.
+        entries =
+          case Keyword.get(opts, :anchors) do
+            kw when is_list(kw) ->
+              case kw[:path] do
+                nil -> entries
+                path -> Recall.boost_entries(entries, path, opts[:scope_id])
+              end
+
+            _ ->
+              entries
+          end
 
         # Graph expansion for Tier 1 entities
         {entities, graph_relations} =

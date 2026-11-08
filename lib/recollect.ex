@@ -283,6 +283,21 @@ defmodule Recollect do
     Recollect.Brief.build(scope_id, opts)
   end
 
+  @doc "Attach recall anchors to an entry (see `Recollect.Recall.index/2`)."
+  def index_anchors(entry_id, anchors) do
+    Recollect.Recall.index(entry_id, anchors)
+  end
+
+  @doc "Resolve a file path to anchored entries (see `Recollect.Recall.for_path/3`)."
+  def recall_for_path(path, scope_id, opts \\ []) do
+    Recollect.Recall.for_path(path, scope_id, opts)
+  end
+
+  @doc "Resolve a symbol to anchored entries (see `Recollect.Recall.for_symbol/3`)."
+  def recall_for_symbol(symbol, scope_id, opts \\ []) do
+    Recollect.Recall.for_symbol(symbol, scope_id, opts)
+  end
+
   @doc "Review candidates with reasons and suggested actions (see `Recollect.Review.candidates/2`)."
   def review(scope_id, opts \\ []) do
     Recollect.Review.candidates(scope_id, opts)
