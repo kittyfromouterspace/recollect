@@ -211,6 +211,15 @@ defmodule Recollect.Config do
   end
 
   @doc """
+  Optional exact tokenizer for budget math (`config :recollect,
+  tokenizer_fn: &MyTokenizer.count/1`), a 1-arity fun from text to token
+  count. When unset, `Recollect.Tokenizer` falls back to `ceil(chars / 4)`.
+  """
+  def tokenizer_fn do
+    Application.get_env(:recollect, :tokenizer_fn)
+  end
+
+  @doc """
   Optional callback invoked when entities or relations are persisted.
 
   Called by `Recollect.Pipeline.Extractor.persist_entities/2` and
