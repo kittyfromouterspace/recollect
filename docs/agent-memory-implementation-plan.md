@@ -3376,14 +3376,10 @@ the live status column.
 | MEM-011 | Backend parity | 0 | 2.5 | 004, 007 | B-2580 | implemented_local |
 | MEM-012 | Learning `since` + dedup | 0 | 1.5 | 005 | B-2581 | implemented_local |
 | MEM-013 | Events + evidence tables | 1 | 4 | 005 | B-2582 | implemented_local |
-| MEM-014 | Entry lifecycle fields | 1 | 2.5 | 005 | B-2583 | implemented_local |
-| MEM-015 | Idempotent ingestion | 1 | 2 | 004, 005 | B-2584 | implemented_local |
-| MEM-016 | Pipeline writes events | 1 | 3 | 005 | B-2585 | implemented_local |
-| MEM-017 | Review + explain APIs | 2 | 2.5 | 005 | B-2586 | implemented_local |
-| MEM-014 | Entry lifecycle fields | 1 | 2.5 | 013 | B-2583 | open |
-| MEM-015 | Idempotent ingestion | 1 | 2 | 012, 014 | B-2584 | open |
-| MEM-016 | Learning writes events | 1 | 3 | 013, 015 | B-2585 | open |
-| MEM-017 | Review + explain | 1 | 2.5 | 013, 014 | B-2586 | open |
+| MEM-014 | Entry lifecycle fields | 1 | 2.5 | 013 | B-2583 | implemented_local |
+| MEM-015 | Idempotent ingestion | 1 | 2 | 012, 014 | B-2584 | implemented_local |
+| MEM-016 | Learning writes events | 1 | 3 | 013, 015 | B-2585 | implemented_local |
+| MEM-017 | Review + explain | 1 | 2.5 | 013, 014 | B-2586 | implemented_local |
 | MEM-018 | Tokenizer + budget | 2 | 2 | — | B-2587 | open |
 | MEM-019 | Brief | 2 | 4 | 014, 018 | B-2588 | open |
 | MEM-020 | ContextFormatter budget | 2 | 2 | 018, 019 | B-2589 | open |
