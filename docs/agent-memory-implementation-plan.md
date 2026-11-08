@@ -3361,6 +3361,7 @@ the live status column.
 | 2026-11-08 | MEM-020 | B-2589 | `f1f3c93` | ContextFormatter format/2 (:max_tokens via Budget.fit, :dedupe entries-vs-related, :citations e/c/p/r, :format text|markdown) + format_with_meta/2 metadata; format/1 golden-pinned byte-identical; unified item list with summary-over-content; 359/0 |
 | 2026-11-08 | MEM-021 | B-2590 | `1b97a32` | recollect_recall_anchors (unique per entry+type+value) + Recall.index/for_path (exact>prefix>basename)/for_symbol/backfill; Search anchors: [path:] modest boost + append-missed (boost_entries/4); facade delegates; page_id FK deferred to MEM-027; 368/0 |
 | 2026-11-08 | MEM-022 | B-2591 | `36625ce` | Handoff.create budgeted (string/list/budget caps with explicit markers, what never dropped); load_handoff bounded to max_items_per_section below session-note importance; WorkingMemory.Server.drain atomic swap; Sleep.promote drains, re-inserts only failed items, promoted provenance (source sleep + sleep:<id>); Config.brief/0; 375/0 |
+| 2026-11-08 | MEM-040 | B-2592 | `870e24a` | Durable staging tier: recollect_staging + Staging.stage/drain (PG SKIP LOCKED, disjoint concurrent claims)/restage/prune (retention + backlog caps, secret guard at stage); Sleep.promote from_staging with restage-on-failure; WorkingMemory deprecated (ephemeral, warns once, removal 1.0); 383/0 |
 
 ---
 
@@ -3407,7 +3408,7 @@ the live status column.
 | MEM-037 | Migration status + upgrade generator | 0 | 2 | — | B-2607 | open |
 | MEM-038 | Keyword fallback in search | 1 | 2 | — | B-2608 | open |
 | MEM-039 | Project mapping from transcript cwd/remote | 1 | 1 | — | B-2609 | open |
-| MEM-040 | Durable staging table | 2 | 3 | 014 | B-2592 | open |
+| MEM-040 | Durable staging table | 2 | 3 | 014 | B-2592 | implemented_local |
 
 **Total:** 105 ideal days.
 
