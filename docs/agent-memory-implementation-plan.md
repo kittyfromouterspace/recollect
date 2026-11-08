@@ -3353,6 +3353,7 @@ the live status column.
 | 2026-11-08 | MEM-014 | B-2583 | `6a45b38` | Lifecycle fields (level/stability/epistemic/window/verification/version/tombstone) + Entry.live/1 + soft forget (hard opt-out) + remember opts + dedupe :update version bump (MEM-012 deferral); vector/graph queries exclude tombstones; 3 legacy hard-delete tests updated; 301/0 (baseline worktree shows same load-linked flake — environmental) |
 | 2026-11-08 | MEM-015 | B-2584 | `34165a3` | remember/2 = one Ecto.Multi (entry+tags+evidence, :evidence opt, atomic rollback on bad links); dedupe :update links evidence atomically; ingest_batch/2 with counts (skipped/failed semantics); harvest records carry stable :source_id (Mcp sink forwards to stage_memory); checkpoint no-op asserted; 311/0 |
 | 2026-11-08 | MEM-016 | B-2585 | `5afdcde` | Pipeline records each extract as a ledger event and binds derived_from evidence atomically (owner_id opt, events.enabled:false -> records-only fallback); Event.record enforces max_content_bytes at write time (UTF-8-safe truncation + marker); harvest records carry :events raw material (Jsonl passthrough); consent upstream, dry-runs inert; 317/0 |
+| 2026-11-08 | MEM-017 | B-2586 | `bdbff51` | Recollect.Review: candidates/2 (six reasons per plan + suggested-action precedence, most-flagged first) + explain/1 (evidence, usage, verification, supersedes directions, human :why); Knowledge.review/explain + facade delegates; telemetry spans; 328/0 |
 
 ---
 
@@ -3376,6 +3377,7 @@ the live status column.
 | MEM-014 | Entry lifecycle fields | 1 | 2.5 | 005 | B-2583 | implemented_local |
 | MEM-015 | Idempotent ingestion | 1 | 2 | 004, 005 | B-2584 | implemented_local |
 | MEM-016 | Pipeline writes events | 1 | 3 | 005 | B-2585 | implemented_local |
+| MEM-017 | Review + explain APIs | 2 | 2.5 | 005 | B-2586 | implemented_local |
 | MEM-014 | Entry lifecycle fields | 1 | 2.5 | 013 | B-2583 | open |
 | MEM-015 | Idempotent ingestion | 1 | 2 | 012, 014 | B-2584 | open |
 | MEM-016 | Learning writes events | 1 | 3 | 013, 015 | B-2585 | open |
