@@ -3367,6 +3367,7 @@ the live status column.
 | 2026-11-08 | MEM-024 | B-2594 | `89643e8` | Dream.Verify: evidence checks by source_type (event exists, file exists, test/user authoritative, url behind flag), strongest-kind verification + verified_at, inferred→observed only with direct evidence, missing evidence downgrades held+stale (never deletes), max_items/max_wall_ms clean stops + truncated flag, per-check telemetry; 403/0 |
 | 2026-11-08 | MEM-025 | B-2595 | `1068bb8` | recollect_reconciliations (canonical-pair unique single-flight) + Dream.Reconcile: LLM synthesis per open conflict (synthesis_fn override, UNRESOLVABLE = unreachable), synthesis claim with stable source_id + supersedes edges, old claims keep content + gain valid_to (half-life untouched), unresolved pairs persist visibly with conflicts left open; 409/0 |
 | 2026-11-08 | MEM-026 | B-2596 | `2562871` | Dream.Promote (weighted MEM-026 score, tag-based promotion into brief sections, demotion stamps + grace archiving, brief generation bumps) + Dream.Prune (duplicate events keeping earliest, retention prune referenced-vs-free, orphan summary + expired volatile tombstoning, never hard-delete evidence-backed claims); schema_index global-fallback test made residue-proof; 419/0 |
+| 2026-11-08 | — | v0.9.0 | `d7d536c` | Released v0.9.0 (tag on mem-phase0; Hex publish deferred) — Phase 3 Dreaming v1; full mix check green (clean compile, format, 419/0) |
 
 ---
 
