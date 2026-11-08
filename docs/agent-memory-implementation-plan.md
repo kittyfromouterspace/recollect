@@ -3364,6 +3364,7 @@ the live status column.
 | 2026-11-08 | MEM-040 | B-2592 | `870e24a` | Durable staging tier: recollect_staging + Staging.stage/drain (PG SKIP LOCKED, disjoint concurrent claims)/restage/prune (retention + backlog caps, secret guard at stage); Sleep.promote from_staging with restage-on-failure; WorkingMemory deprecated (ephemeral, warns once, removal 1.0); 383/0 |
 | 2026-11-08 | — | v0.8.0 | `18208a5` | Released v0.8.0 (tag on mem-phase0; Hex publish deferred) — Phase 2 brief + recall (the plan sketched this phase as 0.9.0; ordering-preserving minor used since phase 1 shipped as 0.7.0); full mix check green (clean compile, format, 383/0) |
 | 2026-11-08 | MEM-023 | B-2593 | `0b10905` | Dream orchestrator: dream_runs (partial done-unique index), input_hash from ledger high-water + config + stages (updated_at excluded), replay/force/commit, failed-run resume past completed stages, PG advisory-lock whole-run checkout (lock_wait mode) / SQLite :global.trans, per-stage transactions + wall-budget abort + cancellation flag, plan/status/Worker behaviour, ratchet allowlist entry; 396/0 |
+| 2026-11-08 | MEM-024 | B-2594 | `89643e8` | Dream.Verify: evidence checks by source_type (event exists, file exists, test/user authoritative, url behind flag), strongest-kind verification + verified_at, inferred→observed only with direct evidence, missing evidence downgrades held+stale (never deletes), max_items/max_wall_ms clean stops + truncated flag, per-check telemetry; 403/0 |
 
 ---
 
@@ -3394,7 +3395,7 @@ the live status column.
 | MEM-021 | Recall anchors | 2 | 4 | 014, 018 | B-2590 | implemented_local |
 | MEM-022 | Handoff/WorkingMemory | 2 | 2 | 019 | B-2591 | implemented_local |
 | MEM-023 | Dream orchestrator | 3 | 5 | 013, 014, 017 | B-2593 | implemented_local |
-| MEM-024 | Dream verify | 3 | 5 | 023 | B-2594 | open |
+| MEM-024 | Dream verify | 3 | 5 | 023 | B-2594 | implemented_local |
 | MEM-025 | Dream reconcile | 3 | 5 | 023, 024, 004 | B-2595 | open |
 | MEM-026 | Dream promote/prune | 3 | 4 | 023, 024, 025 | B-2596 | open |
 | MEM-027 | Pages schema + CRUD | 4 | 2 | 013, 014 | B-2597 | open |
