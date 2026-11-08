@@ -3368,6 +3368,7 @@ the live status column.
 | 2026-11-08 | MEM-025 | B-2595 | `1068bb8` | recollect_reconciliations (canonical-pair unique single-flight) + Dream.Reconcile: LLM synthesis per open conflict (synthesis_fn override, UNRESOLVABLE = unreachable), synthesis claim with stable source_id + supersedes edges, old claims keep content + gain valid_to (half-life untouched), unresolved pairs persist visibly with conflicts left open; 409/0 |
 | 2026-11-08 | MEM-026 | B-2596 | `2562871` | Dream.Promote (weighted MEM-026 score, tag-based promotion into brief sections, demotion stamps + grace archiving, brief generation bumps) + Dream.Prune (duplicate events keeping earliest, retention prune referenced-vs-free, orphan summary + expired volatile tombstoning, never hard-delete evidence-backed claims); schema_index global-fallback test made residue-proof; 419/0 |
 | 2026-11-08 | — | v0.9.0 | `d7d536c` | Released v0.9.0 (tag on mem-phase0; Hex publish deferred) — Phase 3 Dreaming v1; full mix check green (clean compile, format, 419/0) |
+| 2026-11-08 | MEM-027 | B-2597 | `cb6f829` | Pages + page_sources per §5.2 (unique scope+slug, citation unique index, deferred anchor page_id FK joined, generator emits), Page CRUD (atomic create-with-sources, no-source rejection, slug format, tokenizer token_count + sha256 source_hash, version bump only on body change), sources/citations APIs; 432/0 |
 
 ---
 
@@ -3401,7 +3402,7 @@ the live status column.
 | MEM-024 | Dream verify | 3 | 5 | 023 | B-2594 | implemented_local |
 | MEM-025 | Dream reconcile | 3 | 5 | 023, 024, 004 | B-2595 | implemented_local |
 | MEM-026 | Dream promote/prune | 3 | 4 | 023, 024, 025 | B-2596 | implemented_local |
-| MEM-027 | Pages schema + CRUD | 4 | 2 | 013, 014 | B-2597 | open |
+| MEM-027 | Pages schema + CRUD | 4 | 2 | 013, 014 | B-2597 | implemented_local |
 | MEM-028 | Page synthesis | 4 | 5 | 027, 023 | B-2598 | open |
 | MEM-029 | Citations + compression guard | 4 | 3 | 027, 028 | B-2599 | open |
 | MEM-030 | Page retrieval | 4 | 3 | 029, 021 | B-2600 | open |
