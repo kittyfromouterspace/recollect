@@ -28,6 +28,17 @@ defmodule Recollect.Knowledge do
 
   Optionally auto-classifies content using LLM-free pattern matching
   via `Recollect.Classification`. Enable with `:auto_classify` option.
+
+  ## Options (selected)
+
+  - `:tags` — persisted to `recollect_entry_tags`
+  - `:evidence` — list of maps `%{relation: "supports" (default) |
+    "contradicts" | "derived_from" | "supersedes", event_id, source_type,
+    source_ref, excerpt, weight}`; entry, tags, and evidence links commit in
+    one transaction (MEM-015). An invalid link fails the whole remember with
+    `{:error, {:invalid_evidence, reason}}`.
+  - `:dedupe` — `:skip | :update | :error` behavior on a `(source, source_id)`
+    conflict (see `insert_entry_with_tags/5`).
   """
   def remember(content, opts \\ []) do
     metadata = %{
@@ -120,7 +131,7 @@ defmodule Recollect.Knowledge do
       version: Keyword.get(opts, :version, 1)
     }
 
-    case insert_entry_with_tags(repo, attrs, tags, Keyword.get(opts, :dedupe, :skip)) do
+    case insert_entry_with_tags(repo, attrs, tags, Keyword.get(opts, :dedupe, :skip), evidence_specs(opts)) do
       {:ok, entry} ->
         Embedder.embed_entry_async(entry)
         SchemaFit.refine_content_fit_async(entry.id, content, scope_id)
@@ -140,44 +151,118 @@ defmodule Recollect.Knowledge do
   #   :skip   — return the existing entry unchanged (default)
   #   :update — refresh content/summary/metadata/updated_at of the existing
   #   :error  — return {:error, :duplicate}
-  defp insert_entry_with_tags(repo, attrs, tags, dedupe) do
-    repo.transaction(fn ->
-      case %Entry{} |> Entry.changeset(attrs) |> repo.insert() do
-        {:ok, entry} ->
-          tags = normalize_tags(tags)
+  #
+  # MEM-015: the entry, its tags, and its evidence links commit in ONE
+  # Ecto.Multi — a remember that stores the row but drops tags or evidence
+  # is exactly the partial-write bug this replaces.
+  defp insert_entry_with_tags(repo, attrs, tags, dedupe, evidence_specs) do
+    tags = normalize_tags(tags)
 
-          if tags != [] do
-            rows =
-              Enum.map(tags, fn tag ->
-                %{entry_id: entry.id, tag: tag, scope_id: entry.scope_id, owner_id: entry.owner_id}
-              end)
+    multi =
+      Ecto.Multi.new()
+      |> Ecto.Multi.run(:entry, fn repo, _changes ->
+        %Entry{} |> Entry.changeset(attrs) |> repo.insert()
+      end)
+      |> insert_tags_step(tags)
+      |> insert_evidence_step(evidence_specs)
 
-            repo.insert_all(EntryTag, rows,
-              on_conflict: :nothing,
-              conflict_target: [:entry_id, :tag]
-            )
-          end
+    case repo.transaction(multi) do
+      {:ok, %{entry: entry}} ->
+        {:ok, %{entry | tags: tags}}
 
-          %{entry | tags: tags}
+      {:error, :entry, changeset, _changes} ->
+        {:error, changeset}
 
-        {:error, changeset} ->
-          repo.rollback(changeset)
-      end
-    end)
+      {:error, :evidence, {:invalid_evidence, reason}, _changes} ->
+        {:error, {:invalid_evidence, reason}}
+
+      {:error, _op, value, _changes} ->
+        {:error, value}
+    end
   rescue
     e in Ecto.ConstraintError ->
       if unique_source_conflict?(e) do
-        resolve_duplicate(repo, attrs, normalize_tags(tags), dedupe)
+        resolve_duplicate(repo, attrs, tags, dedupe, evidence_specs)
       else
         reraise e, __STACKTRACE__
       end
+  end
+
+  defp insert_tags_step(multi, []) do
+    Ecto.Multi.put(multi, :tags, [])
+  end
+
+  defp insert_tags_step(multi, tags) do
+    Ecto.Multi.run(multi, :tags, fn repo, %{entry: entry} ->
+      rows =
+        Enum.map(tags, fn tag ->
+          %{entry_id: entry.id, tag: tag, scope_id: entry.scope_id, owner_id: entry.owner_id}
+        end)
+
+      repo.insert_all(EntryTag, rows,
+        on_conflict: :nothing,
+        conflict_target: [:entry_id, :tag]
+      )
+
+      {:ok, tags}
+    end)
+  end
+
+  defp insert_evidence_step(multi, []) do
+    Ecto.Multi.put(multi, :evidence, [])
+  end
+
+  defp insert_evidence_step(multi, evidence_specs) do
+    Ecto.Multi.run(multi, :evidence, fn _repo, %{entry: entry} ->
+      case apply_evidence_links(entry.id, evidence_specs) do
+        {:ok, links} -> {:ok, links}
+        {:error, reason} -> {:error, {:invalid_evidence, reason}}
+      end
+    end)
+  end
+
+  # Evidence specs are caller-shaped maps; relation defaults to "supports".
+  # Links dedupe on their own tuple, so re-running a remember with the same
+  # evidence is a no-op.
+  defp evidence_specs(opts) do
+    opts
+    |> Keyword.get(:evidence, [])
+    |> Enum.map(fn
+      %{relation: relation} = spec when is_binary(relation) or is_atom(relation) ->
+        Map.put(spec, :relation, to_string(relation))
+
+      spec ->
+        Map.put(Map.new(spec), :relation, "supports")
+    end)
+  end
+
+  defp apply_evidence_links(entry_id, specs) do
+    specs
+    |> Enum.reduce_while({:ok, []}, fn spec, {:ok, acc} ->
+      opts = [
+        event_id: spec[:event_id],
+        source_type: spec[:source_type],
+        source_ref: spec[:source_ref],
+        excerpt: spec[:excerpt],
+        weight: spec[:weight]
+      ]
+
+      case Recollect.Evidence.link(entry_id, Map.fetch!(spec, :relation), opts) do
+        {:ok, link} -> {:cont, {:ok, [link | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, links} -> {:ok, Enum.reverse(links)}
+      error -> error
+    end
   end
 
   defp unique_source_conflict?(%Ecto.ConstraintError{constraint: constraint}) do
     constraint == "recollect_entries_source_source_id_unique"
   end
 
-  defp resolve_duplicate(repo, attrs, tags, dedupe) do
+  defp resolve_duplicate(repo, attrs, tags, dedupe, evidence_specs) do
     existing = repo.get_by(Entry, source: attrs.source, source_id: attrs.source_id)
 
     case {existing, dedupe} do
@@ -192,27 +277,87 @@ defmodule Recollect.Knowledge do
       {%Entry{} = entry, :update} ->
         # Re-storing a known (source, source_id) is a new generation of the
         # claim (MEM-012 deferral landed with MEM-014): the version bumps.
-        entry
-        |> Entry.changeset(%{
-          content: attrs.content,
-          summary: attrs.summary,
-          metadata: attrs.metadata,
-          version: (existing.version || 1) + 1
-        })
-        |> repo.update()
+        # Update + tags + evidence commit together (MEM-015) so a partial
+        # refresh can't leave the claim and its sources out of sync.
+        fn ->
+          updated =
+            entry
+            |> Entry.changeset(%{
+              content: attrs.content,
+              summary: attrs.summary,
+              metadata: attrs.metadata,
+              version: (existing.version || 1) + 1
+            })
+            |> repo.update!()
+
+          if tags != [], do: set_tags(entry.id, tags)
+
+          case apply_evidence_links(updated.id, evidence_specs) do
+            {:ok, _links} -> :ok
+            {:error, reason} -> repo.rollback({:invalid_evidence, reason})
+          end
+
+          %{updated | tags: tags, dedupe_status: "updated"}
+        end
+        |> repo.transaction()
         |> case do
           {:ok, updated} ->
-            if tags != [], do: set_tags(entry.id, tags)
-            {:ok, %{updated | tags: tags, dedupe_status: "updated"}}
+            {:ok, updated}
 
-          {:error, changeset} ->
+          {:error, {:invalid_evidence, reason}} ->
+            {:error, {:invalid_evidence, reason}}
+
+          {:error, %Ecto.Changeset{} = changeset} ->
             {:error, changeset}
+
+          {:error, other} ->
+            {:error, other}
         end
 
       {%Entry{}, :error} ->
         {:error, :duplicate}
     end
   end
+
+  @doc """
+  Ingest a batch of records idempotently (MEM-015).
+
+  Each record is a map (atom keys) or keyword list with `:content` plus any
+  `remember/2` option; `batch_opts` apply to every record unless the record
+  overrides them. Records without a stable `source_id` dedupe on nothing —
+  give harvest-shaped records `source`/`source_id` so a re-run is a no-op.
+
+  Returns `{:ok, %{inserted: n, updated: n, skipped: n, failed: n}}`:
+  dedupe-skipped records count as `:skipped`, changeset/validation failures
+  as `:failed`. One bad record never rolls the batch back.
+  """
+  def ingest_batch(records, batch_opts \\ []) when is_list(records) do
+    Recollect.Telemetry.span([:recollect, :ingest_batch], %{count: length(records)}, fn ->
+      counts =
+        Enum.reduce(records, %{inserted: 0, updated: 0, skipped: 0, failed: 0}, fn
+          record, acc when is_map(record) or is_list(record) ->
+            record_kw = Enum.map(record, fn {k, v} -> {k, v} end)
+
+            content = record_kw[:content]
+            record_opts = Keyword.delete(record_kw, :content)
+            opts = Keyword.merge(batch_opts, record_opts)
+
+            case remember(content, opts) do
+              {:ok, %{dedupe_status: "skipped"}} -> bump_count(acc, :skipped)
+              {:ok, %{dedupe_status: "updated"}} -> bump_count(acc, :updated)
+              {:ok, _entry} -> bump_count(acc, :inserted)
+              {:error, _reason} -> bump_count(acc, :failed)
+            end
+
+          _not_a_record, acc ->
+            bump_count(acc, :failed)
+        end)
+
+      {:ok, counts}
+    end)
+  end
+
+  defp bump_count(counts, key), do: Map.update!(counts, key, &(&1 + 1))
 
   @doc """
   Normalize a tag list: binaries only, trimmed, downcased, empties dropped,

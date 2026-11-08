@@ -63,6 +63,7 @@ defmodule Recollect.Learner.Harvest do
           project: String.t() | nil,
           agent: atom(),
           source: atom() | nil,
+          source_id: String.t() | nil,
           content: String.t(),
           tags: [String.t()],
           metadata: map(),
@@ -217,6 +218,7 @@ defmodule Recollect.Learner.Harvest do
             project: Map.get(event, :project),
             agent: Map.get(event, :agent),
             source: Map.get(event, :source),
+            source_id: record_source_id(event, extract),
             content: extract.content,
             tags: Map.get(extract, :tags, []),
             metadata: Map.get(extract, :metadata, %{}),
@@ -226,6 +228,32 @@ defmodule Recollect.Learner.Harvest do
 
       {:skip, _reason} ->
         []
+    end
+  end
+
+  # MEM-015: every record carries a stable identity so a host sink can
+  # re-run the same session without duplicating — agent + origin + session
+  # id (turn id when the event carries one). The content-hash fallback
+  # mirrors the pipeline's content_source_id/2.
+  defp record_source_id(event, extract) do
+    session_id = Map.get(event, :session_id)
+    turn = Map.get(event, :turn)
+
+    cond do
+      is_binary(session_id) and session_id != "" and is_binary(turn) and turn != "" ->
+        "#{event.agent}:#{event.source}:#{session_id}:turn:#{turn}"
+
+      is_binary(session_id) and session_id != "" ->
+        "#{event.agent}:#{event.source}:#{session_id}"
+
+      true ->
+        hash =
+          :sha256
+          |> :crypto.hash(extract.content)
+          |> Base.encode16(case: :lower)
+          |> binary_part(0, 16)
+
+        "#{event.agent}:#{event.source}:content:#{hash}"
     end
   end
 

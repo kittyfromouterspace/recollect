@@ -263,6 +263,11 @@ defmodule Recollect do
     Recollect.Evidence.link(entry_id, relation, opts)
   end
 
+  @doc "Ingest a batch of records idempotently; see `Recollect.Knowledge.ingest_batch/2`."
+  def ingest_batch(records, opts \\ []) do
+    Recollect.Knowledge.ingest_batch(records, opts)
+  end
+
   @doc "Evidence rows for an entry, with their events preloaded."
   def entry_evidence(entry_id) do
     Recollect.Evidence.for_entry(entry_id)

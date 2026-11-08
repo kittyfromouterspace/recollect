@@ -36,7 +36,7 @@ defmodule Recollect.Learner.Harvest.Sink.Mcp do
 
       {pushed, failures} =
         Enum.reduce(records, {0, []}, fn record, {ok, errs} ->
-          args = %{
+          base_args = %{
             "project" => project,
             "content" => record.content,
             "agent" => to_string(record.agent),
@@ -44,6 +44,14 @@ defmodule Recollect.Learner.Harvest.Sink.Mcp do
             "importance" => Harvest.importance(record.content),
             "tags" => record.tags
           }
+
+          # MEM-015: forward the record's stable identity when present so the
+          # server-side remember can dedupe a re-run against (source, source_id).
+          args =
+            case Map.get(record, :source_id) do
+              nil -> base_args
+              source_id -> Map.put(base_args, "source_id", source_id)
+            end
 
           case stage(args, key, opts) do
             :ok -> {ok + 1, errs}
