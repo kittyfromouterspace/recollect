@@ -194,16 +194,17 @@ defmodule Recollect.Pipeline.Extractor do
         # Ontology-normalized types (canonical or custom) go through a
         # dedicated insert changeset: `Relation.changeset/2` still enforces
         # the legacy type list, which predates the ontology vocabulary.
-        changeset = relation_insert_changeset(%{
-          from_entity_id: from_id,
-          to_entity_id: to_id,
-          relation_type: relation_type,
-          weight: weight,
-          properties: properties,
-          source_chunk_id: source_chunk_id,
-          owner_id: owner_id,
-          scope_id: scope_id
-        })
+        changeset =
+          relation_insert_changeset(%{
+            from_entity_id: from_id,
+            to_entity_id: to_id,
+            relation_type: relation_type,
+            weight: weight,
+            properties: properties,
+            source_chunk_id: source_chunk_id,
+            owner_id: owner_id,
+            scope_id: scope_id
+          })
 
         case repo.insert(changeset) do
           {:ok, relation} ->

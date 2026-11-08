@@ -90,18 +90,18 @@ defmodule Recollect.Pipeline do
                  },
                  repo
                ),
-              {:ok, _} <- do_embed_entities(extraction.entities),
-              :ok <- do_summarize(document),
-              final_tokens = embedding_usage[:tokens_used] || 0,
-              {:ok, updated_run} <-
-                update_run(
-                  run,
-                  "complete",
-                  %{
-                    tokens_used: final_tokens
-                  },
-                  repo
-                ) do
+             {:ok, _} <- do_embed_entities(extraction.entities),
+             :ok <- do_summarize(document),
+             final_tokens = embedding_usage[:tokens_used] || 0,
+             {:ok, updated_run} <-
+               update_run(
+                 run,
+                 "complete",
+                 %{
+                   tokens_used: final_tokens
+                 },
+                 repo
+               ) do
           document
           |> Ecto.Changeset.change(%{status: "ready", failed_attempts: 0})
           |> repo.update()
@@ -184,13 +184,12 @@ defmodule Recollect.Pipeline do
     cutoff = DateTime.add(now, -24 * 3600, :second)
 
     run_counts =
-      repo.all(
-        from(r in PipelineRun,
-          where: r.inserted_at >= ^cutoff,
-          group_by: r.status,
-          select: {r.status, count(r.id)}
-        )
+      from(r in PipelineRun,
+        where: r.inserted_at >= ^cutoff,
+        group_by: r.status,
+        select: {r.status, count(r.id)}
       )
+      |> repo.all()
       |> Map.new()
 
     errored = Map.get(run_counts, "failed", 0)
@@ -413,16 +412,14 @@ defmodule Recollect.Pipeline do
     ]
 
     # Hard brevity cap: a summary is a retrieval handle, not an essay.
-    llm_opts = Config.extraction_opts() |> Keyword.put(:max_tokens, 500)
+    llm_opts = Keyword.put(Config.extraction_opts(), :max_tokens, 500)
 
     with {:ok, summary} when is_binary(summary) <- llm_fn.(messages, llm_opts),
          {:ok, _} <- Embedder.embed_document_summary(document.id, String.trim(summary)) do
       :ok
     else
       {:error, reason} ->
-        Logger.warning(
-          "Recollect.Pipeline: summarization failed for document #{document.id}: #{inspect(reason)}"
-        )
+        Logger.warning("Recollect.Pipeline: summarization failed for document #{document.id}: #{inspect(reason)}")
 
         :ok
 

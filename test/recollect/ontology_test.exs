@@ -70,8 +70,7 @@ defmodule Recollect.OntologyTest do
   describe "extractor integration" do
     setup do
       llm_fn = fn _messages, _opts ->
-        {:ok,
-         ~s({"entities": [
+        {:ok, ~s({"entities": [
            {"name": "api server", "type": "server", "description": "the API host"},
            {"name": "flux capacitor", "type": "gizmo", "description": "custom hardware"}
          ],
@@ -137,13 +136,14 @@ defmodule Recollect.OntologyTest do
         scope_id: collection.scope_id
       )
 
-      Fixtures.entity(
+      [
         collection: collection,
         name: "flux capacitor",
         entity_type: "gizmo",
         owner_id: collection.owner_id,
         scope_id: collection.scope_id
-      )
+      ]
+      |> Fixtures.entity()
       |> then(fn entity ->
         entity
         |> Ecto.Changeset.change(%{properties: %{"custom_type" => true}})

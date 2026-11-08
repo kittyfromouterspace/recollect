@@ -186,21 +186,19 @@ defmodule Recollect.Ontology do
     repo = Config.repo()
 
     entity_counts =
-      repo.all(
-        from(e in Entity,
-          group_by: e.entity_type,
-          select: {e.entity_type, count(e.id)}
-        )
+      from(e in Entity,
+        group_by: e.entity_type,
+        select: {e.entity_type, count(e.id)}
       )
+      |> repo.all()
       |> Map.new()
 
     relation_counts =
-      repo.all(
-        from(r in Relation,
-          group_by: r.relation_type,
-          select: {r.relation_type, count(r.id)}
-        )
+      from(r in Relation,
+        group_by: r.relation_type,
+        select: {r.relation_type, count(r.id)}
       )
+      |> repo.all()
       |> Map.new()
 
     canonical_entities = MapSet.new(entity_types())
@@ -252,8 +250,7 @@ defmodule Recollect.Ontology do
 
   # Configured synonyms arrive with user-controlled keys; normalize them to
   # the same downcased/underscored form the lookup path uses.
-  defp normalize_configured(synonyms, key)
-       when is_map(synonyms) and key in [:entity_synonyms, :relation_synonyms] do
+  defp normalize_configured(synonyms, key) when is_map(synonyms) and key in [:entity_synonyms, :relation_synonyms] do
     Map.new(synonyms, fn {from, to} -> {normalize_term(from), normalize_term(to)} end)
   end
 

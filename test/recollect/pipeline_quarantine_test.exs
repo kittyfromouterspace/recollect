@@ -103,7 +103,9 @@ defmodule Recollect.PipelineQuarantineTest do
       owner_id = Fixtures.owner_id()
       collection = Fixtures.collection(owner_id: owner_id)
       document = document_fixture(owner_id: owner_id, collection: collection)
-      quarantined = document_fixture(owner_id: owner_id, collection: collection, status: "quarantined", failed_attempts: 3)
+
+      quarantined =
+        document_fixture(owner_id: owner_id, collection: collection, status: "quarantined", failed_attempts: 3)
 
       insert_run!(document, owner_id, "complete", tokens_used: 100, cost_usd: 1.5)
       insert_run!(document, owner_id, "failed", tokens_used: 50, cost_usd: 0.5)

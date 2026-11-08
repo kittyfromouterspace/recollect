@@ -38,7 +38,7 @@ defmodule Recollect.DocumentSummaryTest do
 
       reloaded = Config.repo().get(Document, document.id)
       assert reloaded.summary == @gist
-      assert reloaded.summary_embedding != nil
+      assert reloaded.summary_embedding
     end)
   end
 
@@ -47,9 +47,9 @@ defmodule Recollect.DocumentSummaryTest do
       owner_id = Fixtures.owner_id()
 
       content =
-        1..5
-        |> Enum.map(fn i -> "Section #{i}\n\nDeploy step #{i}: detailed operational content paragraph." end)
-        |> Enum.join("\n\n")
+        Enum.map_join(1..5, "\n\n", fn i ->
+          "Section #{i}\n\nDeploy step #{i}: detailed operational content paragraph."
+        end)
 
       {:ok, document} = Recollect.ingest("Deploy Runbook", content, owner_id: owner_id)
       assert {:ok, _run} = Pipeline.process(document)
