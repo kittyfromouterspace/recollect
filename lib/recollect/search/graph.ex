@@ -88,6 +88,7 @@ defmodule Recollect.Search.Graph do
       JOIN recollect_entries me ON me.id = ew.entry_id
       WHERE me.id != ALL($1)
         AND me.entry_type != 'archived'
+        AND me.deleted_at IS NULL
         #{superseded_clause}
       LIMIT $3
       """

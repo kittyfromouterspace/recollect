@@ -237,6 +237,15 @@ defmodule Recollect.MigrationGenerator do
       add :confidence_state, :string, default: "active"
       add :context_hints, :map, default: %{}
       add :embedding_model_id, :string
+      add :memory_level, :string, null: false, default: "workspace"
+      add :stability, :string, null: false, default: "evolving"
+      add :epistemic, :string, null: false, default: "inferred"
+      add :valid_from, :utc_datetime_usec
+      add :valid_to, :utc_datetime_usec
+      add :verified_at, :utc_datetime_usec
+      add :verification, :string, null: false, default: "none"
+      add :version, :integer, null: false, default: 1
+      add :deleted_at, :utc_datetime_usec
       timestamps(type: :utc_datetime_usec)
     end
 
@@ -345,6 +354,12 @@ defmodule Recollect.MigrationGenerator do
     create unique_index(:#{prefix}entries, [:source, :source_id],
       name: :"#{prefix}entries_source_source_id_unique",
       where: "source_id IS NOT NULL"
+    )
+
+    create index(:#{prefix}entries, [:scope_id, :memory_level, :stability])
+    create index(:#{prefix}entries, [:scope_id, :inserted_at],
+      name: :"#{prefix}entries_live_idx",
+      where: "deleted_at IS NULL AND entry_type != 'archived'"
     )
 
     #{generate_vector_index(adapter, "#{prefix}entries", :embedding, dimensions)}

@@ -46,14 +46,16 @@ defmodule Recollect.SearchTest do
   end
 
   describe "access tracking" do
-    test "forget removes entry from database" do
+    test "forget removes entry from search results (soft deletes)" do
       entry = Fixtures.entry()
 
       assert Config.repo().get(Entry, entry.id)
 
       {:ok, _} = Recollect.forget(entry.id)
 
-      assert Config.repo().get(Entry, entry.id) == nil
+      # MEM-014: soft delete keeps the row but hides it.
+      assert Config.repo().get(Entry, entry.id)
+      assert Config.repo().get(Entry, entry.id).deleted_at
     end
   end
 end

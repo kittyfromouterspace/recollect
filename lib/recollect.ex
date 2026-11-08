@@ -118,9 +118,9 @@ defmodule Recollect do
   @doc "Replace an entry's tag set atomically; returns the normalized tags."
   def set_tags(entry_id, tags), do: Recollect.Knowledge.set_tags(entry_id, tags)
 
-  @doc "Delete a knowledge entry."
-  def forget(entry_id) do
-    Recollect.Knowledge.forget(entry_id)
+  @doc "Delete a knowledge entry: soft-deleted by default, `hard: true` removes the row."
+  def forget(entry_id, opts \\ []) do
+    Recollect.Knowledge.forget(entry_id, opts)
   end
 
   @doc """

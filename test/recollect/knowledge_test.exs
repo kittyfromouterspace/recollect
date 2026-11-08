@@ -1,6 +1,8 @@
 defmodule Recollect.KnowledgeTest do
   use Recollect.DataCase, async: false
 
+  alias Recollect.Schema.Entry
+
   describe "remember/2" do
     test "stores an entry with content" do
       owner_id = Fixtures.owner_id()
@@ -46,13 +48,22 @@ defmodule Recollect.KnowledgeTest do
   end
 
   describe "forget/1" do
-    test "deletes an existing entry" do
+    test "soft-deletes an existing entry (row kept, tombstone set)" do
       entry = Fixtures.entry()
 
       result = Recollect.forget(entry.id)
-      assert {:ok, _} = result
+      assert {:ok, softened} = result
+      assert softened.deleted_at
 
-      assert Config.repo().get(Recollect.Schema.Entry, entry.id) == nil
+      # MEM-014: the row stays for audit/undo...
+      assert Config.repo().get(Entry, entry.id)
+    end
+
+    test "hard: true removes the row" do
+      entry = Fixtures.entry()
+      assert {:ok, _} = Recollect.forget(entry.id, hard: true)
+
+      assert Config.repo().get(Entry, entry.id) == nil
     end
 
     test "returns error for non-existent entry" do

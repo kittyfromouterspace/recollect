@@ -430,6 +430,7 @@ defmodule Recollect.Search.Vector do
     WHERE me.scope_id = $2
       AND me.embedding IS NOT NULL
       AND me.entry_type != 'archived'
+      AND me.deleted_at IS NULL
       AND (1 - (me.embedding <=> $1::text::vector)) >= $3
       #{superseded_exclusion_sql(include_superseded)}
       #{filter_sql}
@@ -459,6 +460,7 @@ defmodule Recollect.Search.Vector do
     WHERE me.scope_id = ?
       AND me.embedding IS NOT NULL
       AND me.entry_type != 'archived'
+      AND me.deleted_at IS NULL
       AND #{similarity} >= ?
       #{superseded_exclusion_sql(include_superseded)}
       #{filter_sql}
@@ -485,6 +487,7 @@ defmodule Recollect.Search.Vector do
     WHERE me.owner_id = $2
       AND me.embedding IS NOT NULL
       AND me.entry_type != 'archived'
+      AND me.deleted_at IS NULL
       AND (1 - (me.embedding <=> $1::text::vector)) >= $3
       #{superseded_exclusion_sql(include_superseded)}
       #{filter_sql}
@@ -514,6 +517,7 @@ defmodule Recollect.Search.Vector do
     WHERE me.owner_id = ?
       AND me.embedding IS NOT NULL
       AND me.entry_type != 'archived'
+      AND me.deleted_at IS NULL
       AND #{similarity} >= ?
       #{superseded_exclusion_sql(include_superseded)}
       #{filter_sql}

@@ -86,6 +86,14 @@ defmodule Recollect.Knowledge do
     schema_fit = SchemaFit.compute_tag_fit(tags, scope_id)
     adjusted_half_life = Strength.adjust_for_schema_fit(base_half_life, schema_fit)
 
+    # MEM-014: verification marker stamped with a verified_at timestamp
+    # unless the caller supplied one; "none" stays unverified.
+    verification = to_string(Keyword.get(opts, :verification, :none))
+
+    verified_at =
+      Keyword.get(opts, :verified_at) ||
+        if(verification == "none", do: nil, else: DateTime.utc_now())
+
     attrs = %{
       content: content,
       scope_id: scope_id,
@@ -101,7 +109,15 @@ defmodule Recollect.Knowledge do
       emotional_valence: Atom.to_string(valence),
       schema_fit: schema_fit,
       confidence_state: "active",
-      context_hints: context_hints
+      context_hints: context_hints,
+      memory_level: to_string(Keyword.get(opts, :memory_level, :workspace)),
+      stability: to_string(Keyword.get(opts, :stability, :evolving)),
+      epistemic: to_string(Keyword.get(opts, :epistemic, :inferred)),
+      valid_from: Keyword.get(opts, :valid_from),
+      valid_to: Keyword.get(opts, :valid_to),
+      verification: verification,
+      verified_at: verified_at,
+      version: Keyword.get(opts, :version, 1)
     }
 
     case insert_entry_with_tags(repo, attrs, tags, Keyword.get(opts, :dedupe, :skip)) do
@@ -174,11 +190,14 @@ defmodule Recollect.Knowledge do
         {:ok, %{entry | dedupe_status: "skipped"}}
 
       {%Entry{} = entry, :update} ->
+        # Re-storing a known (source, source_id) is a new generation of the
+        # claim (MEM-012 deferral landed with MEM-014): the version bumps.
         entry
         |> Entry.changeset(%{
           content: attrs.content,
           summary: attrs.summary,
-          metadata: attrs.metadata
+          metadata: attrs.metadata,
+          version: (existing.version || 1) + 1
         })
         |> repo.update()
         |> case do
@@ -264,14 +283,29 @@ defmodule Recollect.Knowledge do
     end
   end
 
-  @doc "Delete a knowledge entry."
-  def forget(entry_id) do
+  @doc """
+  Delete a knowledge entry.
+
+  Soft delete by default (MEM-014): stamps `deleted_at`, keeps the row for
+  audit/undo, and hides it from search/recent. Pass `hard: true` to
+  physically delete it (tags/evidence cascade with the row).
+  """
+  def forget(entry_id, opts \\ []) do
     Recollect.Telemetry.span([:recollect, :forget], %{entry_id: entry_id}, fn ->
       repo = Config.repo()
 
       case repo.get(Entry, entry_id) do
-        nil -> {:error, :not_found}
-        entry -> repo.delete(entry)
+        nil ->
+          {:error, :not_found}
+
+        entry ->
+          if Keyword.get(opts, :hard, false) do
+            repo.delete(entry)
+          else
+            entry
+            |> Ecto.Changeset.change(deleted_at: DateTime.utc_now())
+            |> repo.update()
+          end
       end
     end)
   end
@@ -293,19 +327,19 @@ defmodule Recollect.Knowledge do
     end)
   end
 
-  @doc "Get recent entries for a scope."
+  @doc "Get recent entries for a scope (live entries only — soft-deleted and archived excluded)."
   def recent(scope_id, opts \\ []) do
     Recollect.Telemetry.span([:recollect, :recent], %{scope_id: scope_id}, fn ->
       repo = Config.repo()
       limit = Keyword.get(opts, :limit, 20)
 
-      repo.all(
-        from(e in Entry,
-          where: e.scope_id == ^scope_id and e.entry_type != "archived",
-          order_by: [desc: e.inserted_at],
-          limit: ^limit
-        )
+      from(e in Entry,
+        where: e.scope_id == ^scope_id,
+        order_by: [desc: e.inserted_at],
+        limit: ^limit
       )
+      |> Entry.live()
+      |> repo.all()
     end)
   end
 
@@ -319,13 +353,13 @@ defmodule Recollect.Knowledge do
     repo = Config.repo()
     limit = Keyword.get(opts, :limit, 50)
 
-    repo.all(
-      from(e in Entry,
-        where: e.owner_id == ^owner_id and e.entry_type != "archived",
-        order_by: [desc: e.inserted_at],
-        limit: ^limit
-      )
+    from(e in Entry,
+      where: e.owner_id == ^owner_id,
+      order_by: [desc: e.inserted_at],
+      limit: ^limit
     )
+    |> Entry.live()
+    |> repo.all()
   end
 
   @doc """
@@ -471,13 +505,13 @@ defmodule Recollect.Knowledge do
     pattern = "%#{entity}%"
 
     entries =
-      repo.all(
-        from(e in Entry,
-          where:
-            e.scope_id == ^scope_id and e.owner_id == ^owner_id and e.entry_type != "archived" and e.confidence > 0.3 and
-              ilike(e.content, ^pattern)
-        )
+      from(e in Entry,
+        where:
+          e.scope_id == ^scope_id and e.owner_id == ^owner_id and e.confidence > 0.3 and
+            ilike(e.content, ^pattern)
       )
+      |> Entry.live()
+      |> repo.all()
 
     # Check each entry for contradictions
     entries

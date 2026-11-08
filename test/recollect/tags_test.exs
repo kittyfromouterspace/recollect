@@ -79,11 +79,11 @@ defmodule Recollect.TagsTest do
   end
 
   describe "cascade" do
-    test "deleting an entry deletes its tags" do
+    test "hard deleting an entry deletes its tags" do
       entry = remember("delete me", tags: ["ephemeral"])
       entry_id = entry.id
 
-      assert {:ok, _} = Knowledge.forget(entry_id)
+      assert {:ok, _} = Knowledge.forget(entry_id, hard: true)
 
       assert Config.repo().all(from(t in EntryTag, where: t.entry_id == ^entry_id)) == []
     end
