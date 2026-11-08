@@ -3360,6 +3360,7 @@ the live status column.
 | 2026-11-08 | MEM-019 | B-2588 | `90ce5be` | Recollect.Brief: sectioned selector (rules/focus/traps/open questions/index, precedence dedupe, verification>stability>retrieval>recency ranking), markdown/text/json renderer with per-item citations and budget header, ETS cache keyed (scope, generation, budget) bumped by remember/forget/supersede via Brief.invalidate; facade brief/2; 350/0 |
 | 2026-11-08 | MEM-020 | B-2589 | `f1f3c93` | ContextFormatter format/2 (:max_tokens via Budget.fit, :dedupe entries-vs-related, :citations e/c/p/r, :format text|markdown) + format_with_meta/2 metadata; format/1 golden-pinned byte-identical; unified item list with summary-over-content; 359/0 |
 | 2026-11-08 | MEM-021 | B-2590 | `1b97a32` | recollect_recall_anchors (unique per entry+type+value) + Recall.index/for_path (exact>prefix>basename)/for_symbol/backfill; Search anchors: [path:] modest boost + append-missed (boost_entries/4); facade delegates; page_id FK deferred to MEM-027; 368/0 |
+| 2026-11-08 | MEM-022 | B-2591 | `36625ce` | Handoff.create budgeted (string/list/budget caps with explicit markers, what never dropped); load_handoff bounded to max_items_per_section below session-note importance; WorkingMemory.Server.drain atomic swap; Sleep.promote drains, re-inserts only failed items, promoted provenance (source sleep + sleep:<id>); Config.brief/0; 375/0 |
 
 ---
 
@@ -3388,7 +3389,7 @@ the live status column.
 | MEM-019 | Brief | 2 | 4 | 014, 018 | B-2588 | implemented_local |
 | MEM-020 | ContextFormatter budget | 2 | 2 | 018, 019 | B-2589 | implemented_local |
 | MEM-021 | Recall anchors | 2 | 4 | 014, 018 | B-2590 | implemented_local |
-| MEM-022 | Handoff/WorkingMemory | 2 | 2 | 019 | B-2591 | open |
+| MEM-022 | Handoff/WorkingMemory | 2 | 2 | 019 | B-2591 | implemented_local |
 | MEM-023 | Dream orchestrator | 3 | 5 | 013, 014, 017 | B-2593 | open |
 | MEM-024 | Dream verify | 3 | 5 | 023 | B-2594 | open |
 | MEM-025 | Dream reconcile | 3 | 5 | 023, 024, 004 | B-2595 | open |
