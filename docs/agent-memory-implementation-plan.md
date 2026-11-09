@@ -3371,6 +3371,7 @@ the live status column.
 | 2026-11-08 | MEM-027 | B-2597 | `cb6f829` | Pages + page_sources per §5.2 (unique scope+slug, citation unique index, deferred anchor page_id FK joined, generator emits), Page CRUD (atomic create-with-sources, no-source rejection, slug format, tokenizer token_count + sha256 source_hash, version bump only on body change), sources/citations APIs; 432/0 |
 | 2026-11-08 | MEM-028 | B-2598 | `0cd7099` | Dream.Synthesize: tag-blocked clustering (overlap >= 0.3 within block), min size 3 + >=2 sources, verbatim-bullet fallback + optional LLM layer, tag-block slug so growing clusters update one page (cluster-hash fingerprint skips no-ops), slug races skip, pages.enabled gate + telemetry; 442/0 |
 | 2026-11-08 | MEM-029 | B-2599 | `bad8204` | Compression guard (page tokens <= max(200, source_tokens * ratio) from CITED sources only; create + body-change update; rejection report + warning + telemetry), pages.max_pages_per_scope cap ({:error, :page_cap_reached}, per-scope), Page.check/1 dry-run report; 450/0 |
+| 2026-11-08 | — | v0.10.0 | `f380054` | Released v0.10.0 (tag on mem-phase0; Hex publish deferred) — Phase 4 Pages; full mix check green (clean compile, format, 450/0) |
 
 ---
 
