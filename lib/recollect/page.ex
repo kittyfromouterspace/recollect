@@ -15,8 +15,11 @@ defmodule Recollect.Page do
   import Ecto.Query
 
   alias Recollect.Config
+  alias Recollect.Schema.Entry
+  alias Recollect.Schema.Event
   alias Recollect.Schema.Page
   alias Recollect.Schema.PageSource
+  alias Recollect.Telemetry
   alias Recollect.Tokenizer
   alias Recollect.Util
 
@@ -38,43 +41,60 @@ defmodule Recollect.Page do
   duplicate-slug failures return a changeset.
   """
   def create(attrs, sources) when is_list(sources) do
-    if sources == [] do
-      {:error, :no_sources}
-    else
-      # created_at is a create-only attr — updates never touch it
-      attrs = Map.put(page_attrs(Map.new(attrs)), :created_at, DateTime.utc_now())
-      repo = Config.repo()
+    cond do
+      sources == [] ->
+        {:error, :no_sources}
 
-      fn ->
-        page =
-          %Page{}
-          |> Page.changeset(attrs)
-          |> repo.insert()
-          |> case do
-            {:ok, page} -> page
-            {:error, cs} -> repo.rollback(cs)
-          end
+      scope_full?(attrs) ->
+        {:error, :page_cap_reached}
 
-        Enum.each(normalize_sources(sources), fn source_attrs ->
-          source_attrs = Map.put(source_attrs, :page_id, page.id)
+      true ->
+        # created_at is a create-only attr — updates never touch it
+        attrs = Map.put(page_attrs(Map.new(attrs)), :created_at, DateTime.utc_now())
+        repo = Config.repo()
 
-          %PageSource{}
-          |> PageSource.changeset(source_attrs)
-          |> repo.insert!()
-        end)
+        guard =
+          compression_guard(attrs[:token_count], source_tokens(sources, repo), attrs[:scope_id])
 
-        %{page | sources: normalize_sources(sources)}
-      end
-      |> repo.transaction()
-      |> case do
-        {:ok, page} -> {:ok, page}
-        {:error, %Ecto.Changeset{} = cs} -> {:error, cs}
-        {:error, reason} -> {:error, reason}
-      end
+        if guard.valid do
+          do_create(repo, attrs, sources)
+        else
+          warn_rejected(guard, attrs[:slug])
+          {:error, {:compression_guard, guard}}
+        end
     end
   end
 
   def create(_attrs, _not_a_list), do: {:error, :no_sources}
+
+  defp do_create(repo, attrs, sources) do
+    fn ->
+      page =
+        %Page{}
+        |> Page.changeset(attrs)
+        |> repo.insert()
+        |> case do
+          {:ok, page} -> page
+          {:error, cs} -> repo.rollback(cs)
+        end
+
+      Enum.each(normalize_sources(sources), fn source_attrs ->
+        source_attrs = Map.put(source_attrs, :page_id, page.id)
+
+        %PageSource{}
+        |> PageSource.changeset(source_attrs)
+        |> repo.insert!()
+      end)
+
+      %{page | sources: normalize_sources(sources)}
+    end
+    |> repo.transaction()
+    |> case do
+      {:ok, page} -> {:ok, page}
+      {:error, %Ecto.Changeset{} = cs} -> {:error, cs}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   @doc "Fetch a page with its sources preloaded."
   def get(page_id) do
@@ -158,12 +178,24 @@ defmodule Recollect.Page do
             Map.put(attrs, :updated_at, DateTime.utc_now())
           end
 
-        page
-        |> Page.changeset(attrs)
-        |> repo.update()
-        |> case do
-          {:ok, updated} -> {:ok, updated}
-          {:error, cs} -> {:error, cs}
+        # MEM-029: the compression guard applies on update too — a body
+        # change may not outgrow the page's cited sources. Summary-only
+        # updates keep the existing token count.
+        sources = repo.all(from(s in PageSource, where: s.page_id == ^page.id))
+        new_count = attrs[:token_count] || page.token_count
+        guard = compression_guard(new_count, source_tokens_from_rows(sources, repo), page.scope_id)
+
+        if guard.valid do
+          page
+          |> Page.changeset(attrs)
+          |> repo.update()
+          |> case do
+            {:ok, updated} -> {:ok, updated}
+            {:error, cs} -> {:error, cs}
+          end
+        else
+          warn_rejected(guard, page.slug)
+          {:error, {:compression_guard, guard}}
         end
     end
   end
@@ -295,5 +327,135 @@ defmodule Recollect.Page do
 
   defp body_hash(body) do
     :sha256 |> :crypto.hash(body) |> Base.encode16(case: :lower)
+  end
+
+  # ── Compression guard (MEM-029) ──────────────────────────────────────
+
+  @doc """
+  Dry-run validation: does this page satisfy the source requirement and
+  the compression guard? Returns a report — never writes.
+
+      page.token_count <= max(200, source_tokens * pages.compression_ratio)
+  """
+  def check(page_or_id) do
+    repo = Config.repo()
+
+    case fetch_page(repo, page_or_id) do
+      {:error, reason} ->
+        {:error, reason}
+
+      {:ok, page} ->
+        sources = repo.all(from(s in PageSource, where: s.page_id == ^page.id))
+        guard = compression_guard(page.token_count, source_tokens_from_rows(sources, repo), page.scope_id)
+
+        {:ok,
+         %{
+           valid: guard.valid,
+           page_token_count: page.token_count,
+           source_tokens: guard.source_tokens,
+           max_allowed: guard.limit,
+           compression_ratio: guard.ratio,
+           has_sources: sources != [],
+           reasons: guard.reasons
+         }}
+    end
+  end
+
+  # Guard report: valid when the page has sources and fits
+  # max(200, source_tokens * pages.compression_ratio).
+  defp compression_guard(page_token_count, source_tokens, scope_id) do
+    ratio = Config.pages()[:compression_ratio] || 0.5
+    limit = max(200, trunc(source_tokens * ratio))
+
+    reasons =
+      []
+      |> reject_if(scope_id == nil, :missing_scope)
+      |> reject_if(page_token_count > limit, :compression_guard_exceeded)
+
+    %{
+      valid: reasons == [],
+      page_token_count: page_token_count || 0,
+      source_tokens: source_tokens,
+      limit: limit,
+      ratio: ratio,
+      reasons: reasons
+    }
+  end
+
+  defp reject_if(reasons, true, reason), do: reasons ++ [reason]
+  defp reject_if(reasons, false, _reason), do: reasons
+
+  # Source tokens come from the CITED entries/events only — never the
+  # whole corpus. url/file sources contribute nothing (nothing to read).
+  defp source_tokens(sources, repo) when is_list(sources) do
+    sources
+    |> Enum.map(fn source ->
+      spec = source_attrs_map(source)
+      token_count_for_source(spec[:source_type], spec[:entry_id], spec[:event_id], repo)
+    end)
+    |> Enum.sum()
+  end
+
+  defp source_tokens(_page_or_id_or_other, _repo), do: 0
+
+  # Stored-sources variant used by update/check.
+  defp source_tokens_from_rows(rows, repo) do
+    rows
+    |> Enum.map(fn row ->
+      token_count_for_source(row.source_type, row.entry_id, row.event_id, repo)
+    end)
+    |> Enum.sum()
+  end
+
+  defp token_count_for_source("entry", entry_id, _event_id, repo) when not is_nil(entry_id) do
+    case repo.get(Entry, entry_id) do
+      nil -> 0
+      entry -> Tokenizer.estimate(entry.content || "")
+    end
+  end
+
+  defp token_count_for_source("event", _entry_id, event_id, repo) when not is_nil(event_id) do
+    case repo.get(Event, event_id) do
+      nil -> 0
+      event -> Tokenizer.estimate(event.content || "")
+    end
+  end
+
+  defp token_count_for_source(_type, _entry_id, _event_id, _repo), do: 0
+
+  defp scope_full?(attrs) do
+    attrs_map = Map.new(attrs)
+    scope_id = uuid_or_nil(attrs_map[:scope_id] || attrs_map["scope_id"])
+    max_pages = Config.pages()[:max_pages_per_scope] || 100
+
+    if scope_id do
+      count =
+        Config.repo().aggregate(
+          from(p in Page, where: p.scope_id == ^scope_id),
+          :count,
+          :id
+        )
+
+      count >= max_pages
+    else
+      false
+    end
+  end
+
+  defp warn_rejected(guard, slug) do
+    require Logger
+
+    Logger.warning(
+      "Recollect.Page: rejected page #{inspect(slug)} — compression guard " <>
+        "(#{guard.page_token_count} tokens > max #{guard.limit} from #{guard.source_tokens} source tokens)"
+    )
+
+    Telemetry.event(
+      [:recollect, :page, :guard, :reject],
+      %{page_token_count: guard.page_token_count, limit: guard.limit},
+      %{
+        source_tokens: guard.source_tokens
+      }
+    )
   end
 end
