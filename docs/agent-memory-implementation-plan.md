@@ -3370,6 +3370,7 @@ the live status column.
 | 2026-11-08 | — | v0.9.0 | `d7d536c` | Released v0.9.0 (tag on mem-phase0; Hex publish deferred) — Phase 3 Dreaming v1; full mix check green (clean compile, format, 419/0) |
 | 2026-11-08 | MEM-027 | B-2597 | `cb6f829` | Pages + page_sources per §5.2 (unique scope+slug, citation unique index, deferred anchor page_id FK joined, generator emits), Page CRUD (atomic create-with-sources, no-source rejection, slug format, tokenizer token_count + sha256 source_hash, version bump only on body change), sources/citations APIs; 432/0 |
 | 2026-11-08 | MEM-028 | B-2598 | `0cd7099` | Dream.Synthesize: tag-blocked clustering (overlap >= 0.3 within block), min size 3 + >=2 sources, verbatim-bullet fallback + optional LLM layer, tag-block slug so growing clusters update one page (cluster-hash fingerprint skips no-ops), slug races skip, pages.enabled gate + telemetry; 442/0 |
+| 2026-11-08 | MEM-029 | B-2599 | `bad8204` | Compression guard (page tokens <= max(200, source_tokens * ratio) from CITED sources only; create + body-change update; rejection report + warning + telemetry), pages.max_pages_per_scope cap ({:error, :page_cap_reached}, per-scope), Page.check/1 dry-run report; 450/0 |
 
 ---
 
@@ -3405,7 +3406,7 @@ the live status column.
 | MEM-026 | Dream promote/prune | 3 | 4 | 023, 024, 025 | B-2596 | implemented_local |
 | MEM-027 | Pages schema + CRUD | 4 | 2 | 013, 014 | B-2597 | implemented_local |
 | MEM-028 | Page synthesis | 4 | 5 | 027, 023 | B-2598 | implemented_local |
-| MEM-029 | Citations + compression guard | 4 | 3 | 027, 028 | B-2599 | open |
+| MEM-029 | Citations + compression guard | 4 | 3 | 027, 028 | B-2599 | implemented_local |
 | MEM-030 | Page retrieval | 4 | 3 | 029, 021 | B-2600 | open |
 | MEM-031 | Lexical indexes | 5 | 4 | 014 | B-2601 | open |
 | MEM-032 | RRF fusion + global budget | 5 | 4 | 031, 018, 021 | B-2602 | open |
