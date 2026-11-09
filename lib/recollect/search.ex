@@ -3,6 +3,7 @@ defmodule Recollect.Search do
   Unified search combining vector similarity, graph traversal, and edge following.
   """
 
+  alias Recollect.Page
   alias Recollect.Recall
   alias Recollect.Search.Graph
   alias Recollect.Search.Vector
@@ -37,6 +38,8 @@ defmodule Recollect.Search do
 
     Recollect.Telemetry.span([:recollect, :search], metadata, fn ->
       hops = Keyword.get(opts, :hops, 1)
+      limit = Keyword.get(opts, :limit, 10)
+      min_score = Keyword.get(opts, :min_score, 0.0)
 
       with {:ok, vector_results} <- Vector.search(query_text, opts) do
         # Separate by type
@@ -55,6 +58,21 @@ defmodule Recollect.Search do
 
             _ ->
               entries
+          end
+
+        # MEM-030: page search results, deduped against entries by citation
+        pages =
+          if Keyword.get(opts, :include_pages, false) do
+            case Page.search(query_text, opts[:scope_id], limit: limit, min_score: min_score) do
+              {:ok, page_results} ->
+                # Dedupe pages against entries by citation (slug)
+                entry_ids = MapSet.new(entries |> Enum.map(& &1["id"]) |> Enum.reject(&is_nil/1))
+                page_results
+                |> Enum.reject(fn p -> MapSet.member?(entry_ids, p[:id]) end)
+              {:error, _} -> []
+            end
+          else
+            []
           end
 
         # Graph expansion for Tier 1 entities
@@ -86,6 +104,7 @@ defmodule Recollect.Search do
         context_pack = %{
           chunks: chunks,
           entries: entries,
+          pages: pages,
           related_entries: related_entries,
           entities: entities,
           relations: graph_relations,

@@ -99,7 +99,7 @@ defmodule Recollect.Learner.Harvest do
 
           events
           |> filter_by_match(opts[:match])
-          |> Enum.flat_map(&extract_record/1)
+          |> Enum.flat_map(&extract_record(&1, opts))
           |> maybe_limit(opts[:limit])
       end
 
@@ -131,12 +131,14 @@ defmodule Recollect.Learner.Harvest do
   # nil ⇒ no project filter (all sessions). A map ⇒ per-agent allowed keys
   # (every discovered agent constrained; unmatched agents get [] so nothing
   # leaks in). :none ⇒ nothing matched and no override, so import nothing.
+  # :project_key_override (MEM-039) imports EVERYTHING into one project —
+  # for scripted imports that already know the target.
   defp resolve_filter(opts, log) do
     cond do
-      opts[:all_sessions] ->
+      opts[:all_sessions] || opts[:match] ->
         {nil, nil}
 
-      opts[:match] ->
+      Keyword.has_key?(opts, :project_key_override) ->
         {nil, nil}
 
       project = opts[:project] ->
@@ -159,7 +161,8 @@ defmodule Recollect.Learner.Harvest do
         end
 
       true ->
-        raise ArgumentError, "project is required unless :all_sessions or :match is given"
+        raise ArgumentError,
+              "project is required unless :all_sessions, :match, or :project_key_override is given"
     end
   end
 
@@ -211,12 +214,14 @@ defmodule Recollect.Learner.Harvest do
     end)
   end
 
-  defp extract_record(event) do
+  defp extract_record(event, opts) do
     case CodingAgent.extract(event) do
       {:ok, extract} ->
         [
           %{
-            project: Map.get(event, :project),
+            # MEM-039: a project_key_override stamps every record into the
+            # scripted target regardless of what the transcript's cwd says.
+            project: opts[:project_key_override] || Map.get(event, :project),
             agent: Map.get(event, :agent),
             source: Map.get(event, :source),
             source_id: record_source_id(event, extract),

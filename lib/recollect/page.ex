@@ -246,6 +246,63 @@ defmodule Recollect.Page do
     end
   end
 
+  @doc """
+  Search pages by vector similarity over their cited entries (MEM-030).
+
+  Pages don't store embeddings directly; instead we vector-search entries
+  and return the pages that cite matching entries, ranked by best entry
+  match score.
+
+  ## Options
+  - `:limit` — Max results (default: 10)
+  - `:min_score` — Minimum similarity 0.0-1.0 (default: 0.0)
+
+  Returns `{:ok, results}` where each result is a map with `:id`, `:slug`,
+  `:title`, `:summary`, `:score`, and `:sources`.
+  """
+  def search(query_text, scope_id, opts \\ []) do
+    scope_id = Util.uuid_to_string(scope_id)
+    limit = Keyword.get(opts, :limit, 10)
+    min_score = Keyword.get(opts, :min_score, 0.0)
+
+    case Recollect.Pipeline.Embedder.embed_query(query_text) do
+      {:ok, embedding} ->
+        embedding_str = embedding_to_str(embedding)
+
+        case Recollect.Search.Vector.search_entries_by_embedding(embedding_str, scope_id, limit: limit * 5, min_score: min_score) do
+          {:ok, entry_results} ->
+            # Find pages that cite matching entries
+            page_scores = find_pages_for_entries(Config.repo(), entry_results)
+            # Find pages that cite matching entries
+            page_scores = find_pages_for_entries(Config.repo(), entry_results)
+
+            pages =
+              page_scores
+              |> Enum.sort_by(& -&1.score)
+              |> Enum.take(limit)
+              |> Enum.map(fn %{page: page, score: score, entry_ids: _entry_ids} ->
+                %{
+                  id: page.id,
+                  slug: page.slug,
+                  title: page.title,
+                  summary: page.summary,
+                  score: score,
+                  sources: page_source_list(page.id),
+                  citation: "[p] #{page.slug}"
+                }
+              end)
+
+            {:ok, pages}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   @doc "Add one source to an existing page."
   def add_source(page_or_id, source_attrs) do
     repo = Config.repo()
@@ -457,5 +514,65 @@ defmodule Recollect.Page do
         source_tokens: guard.source_tokens
       }
     )
+  end
+
+  # ── Page search helpers (MEM-030) ───────────────────────────────────
+
+  defp embedding_to_str(embedding) when is_list(embedding) do
+    adapter = Config.adapter()
+    result = adapter.format_embedding(embedding)
+
+    if is_binary(result), do: result, else: "[#{Enum.map_join(embedding, ",", &Float.to_string/1)}]"
+  end
+
+  defp find_pages_for_entries(repo, entry_results) do
+    entry_ids =
+      entry_results
+      |> Enum.map(fn r -> r["id"] || r[:id] end)
+      |> Enum.reject(&is_nil/1)
+      # Ecto :binary_id fields need string UUIDs, not raw binaries
+      |> Enum.map(&Util.uuid_to_string/1)
+
+    if entry_ids == [] do
+      []
+    else
+      page_entry_ids =
+        repo.all(
+          from(s in PageSource,
+            where: s.entry_id in ^entry_ids,
+            select: {s.page_id, s.entry_id}
+          )
+        )
+        |> Enum.group_by(fn {page_id, _entry_id} -> page_id end)
+        |> Map.new(fn {page_id, rows} -> {page_id, Enum.map(rows, &elem(&1, 1))} end)
+
+      # Score each page by its best matching entry score
+      entry_score_map =
+        entry_results
+        |> Enum.reduce(%{}, fn r, acc ->
+          id = r["id"] || r[:id]
+          score = r["score"] || r[:score] || 0.0
+          Map.put(acc, Util.uuid_to_string(id), score)
+        end)
+
+        page_entry_ids
+        |> Enum.map(fn {page_id, cited_entry_ids} ->
+          page = repo.get(Page, page_id)
+
+          best_score =
+            cited_entry_ids
+            |> Enum.map(fn eid -> Map.get(entry_score_map, eid, 0.0) end)
+            |> Enum.max()
+            |> Kernel.+(0.0)
+
+          %{page: page, score: best_score, entry_ids: cited_entry_ids}
+        end)
+    end
+  end
+
+  defp page_source_list(page_id) do
+    repo = Config.repo()
+    query = from(s in PageSource, where: s.page_id == ^page_id, select: {s.source_type, s.source_ref, s.role})
+    repo.all(query)
   end
 end

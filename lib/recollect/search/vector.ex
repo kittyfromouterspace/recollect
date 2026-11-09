@@ -121,6 +121,16 @@ defmodule Recollect.Search.Vector do
     end
   end
 
+  @doc "Search entries only using a pre-computed embedding string."
+  def search_entries_by_embedding(embedding_str, scope_id, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 10)
+    min_score = Keyword.get(opts, :min_score, 0.0)
+    filters = Keyword.get(opts, :filters, %{})
+    include_superseded = Keyword.get(opts, :include_superseded, false)
+
+    do_search_entries(embedding_str, scope_id, limit, min_score, filters, include_superseded)
+  end
+
   @doc """
   Search entries by owner_id across all scopes (global brain search).
   Used for cross-workspace knowledge retrieval with workspace-priority ranking.
