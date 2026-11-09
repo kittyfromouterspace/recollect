@@ -41,9 +41,10 @@ defmodule Recollect.BackendParityTest do
     "retrieval_counter.ex" => "bulk unnest UPDATE is the :postgres branch; other dialects take the per-row path",
     "reembed.ex" => "dialect-branched embedding UPDATE",
     "dream.ex" =>
-      "advisory-lock session SQL is the :postgres branch (try/wait); SQLite/libSQL takes the :global.trans path"
+      "advisory-lock session SQL is the :postgres branch (try/wait); SQLite/libSQL takes the :global.trans path",
+    "lexical.ex" =>
+      "Postgres tsvector/GIN full-text search; SQLite/libSQL uses FTS5 path"
   }
-
   test "converted modules contain no raw SQL" do
     for file <- @ecto_only_modules do
       path = Path.join(@lib_root, file)

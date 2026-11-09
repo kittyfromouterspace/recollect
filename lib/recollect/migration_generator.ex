@@ -59,18 +59,13 @@ defmodule Recollect.MigrationGenerator do
     prefix = Keyword.get(opts, :table_prefix, "recollect_")
 
     """
-    drop table(:#{prefix}staging)
-    drop table(:#{prefix}recall_anchors)
     drop table(:#{prefix}evidence)
     drop table(:#{prefix}events)
+    drop table(:#{prefix}staging)
+    drop table(:#{prefix}recall_anchors)
     drop table(:#{prefix}handoffs)
     drop table(:#{prefix}entry_tags)
-    drop table(:#{prefix}edges)
-    drop table(:#{prefix}entries)
-    drop table(:#{prefix}pipeline_runs)
-    drop table(:#{prefix}relations)
     drop table(:#{prefix}entities)
-    drop table(:#{prefix}chunks)
     drop table(:#{prefix}documents)
     drop table(:#{prefix}collections)
     """
@@ -88,7 +83,7 @@ defmodule Recollect.MigrationGenerator do
     end
   end
 
-  # ── Tier 1: Full Pipeline Tables ────────────────────────────────────────
+  # ── Tier 1: Full Pipeline Tables ──────────────────────────────────────
 
   defp generate_tier1_tables(adapter, dimensions, prefix) do
     uuid_type = adapter.uuid_type()
@@ -214,6 +209,20 @@ defmodule Recollect.MigrationGenerator do
         _ -> :binary_id
       end
 
+    # MEM-031: lexical search index SQL (dialect-specific)
+    lexical_sql =
+      if adapter.dialect() == :postgres do
+        "execute(\"ALTER TABLE #{prefix}entries ADD COLUMN search_vector tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(content, '') || ' ' || coalesce(summary, ''))) STORED\")\nexecute(\"CREATE INDEX #{prefix}entries_search_idx ON #{prefix}entries USING GIN (search_vector)\")"
+      else
+        """
+        create table(:#{prefix}entries_fts, primary_key: false) do
+          add :entry_id, :binary_id, null: false
+          add :content, :text
+          add :summary, :text
+        end
+        """
+      end
+
     """
     # ── Tier 2: Lightweight Knowledge ──────────────────────────────────
 
@@ -250,6 +259,8 @@ defmodule Recollect.MigrationGenerator do
       add :deleted_at, :utc_datetime_usec
       timestamps(type: :utc_datetime_usec)
     end
+
+    #{lexical_sql}
 
     create table(:#{prefix}edges, primary_key: false) do
       add :id, :binary_id, primary_key: true
@@ -388,6 +399,13 @@ defmodule Recollect.MigrationGenerator do
 
     #{generate_vector_index(adapter, "#{prefix}entries", :embedding, dimensions)}
 
+    # MEM-031: lexical search index (PostgreSQL tsvector/GIN or SQLite FTS5)
+    if adapter.dialect() == :postgres do
+      execute("CREATE INDEX #{prefix}entries_search_idx ON #{prefix}entries USING GIN (search_vector)")
+    else
+      create index(:#{prefix}entries_fts_entry_id_idx, on: :entry_id, unique: true)
+    end
+
     create unique_index(:#{prefix}edges, [:source_entry_id, :target_entry_id, :relation])
 
     create index(:#{prefix}handoffs, [:scope_id, :created_at])
@@ -409,27 +427,17 @@ defmodule Recollect.MigrationGenerator do
       where: "source_ref IS NOT NULL"
     )
 
-    create index(:#{prefix}recall_anchors, [:anchor_type, :anchor_value],
-      name: :"#{prefix}recall_anchors_lookup_idx"
-    )
-
+    create index(:#{prefix}recall_anchors, [:anchor_type, :anchor_value])
     create index(:#{prefix}recall_anchors, [:entry_id])
 
-    create unique_index(:#{prefix}recall_anchors, [:entry_id, :anchor_type, :anchor_value],
-      name: :"#{prefix}recall_anchors_unique_idx"
-    )
-
-    create index(:#{prefix}staging, [:scope_id, :status, :inserted_at],
-      name: :"#{prefix}staging_scope_idx"
-    )
-
+    create index(:#{prefix}staging, [:scope_id, :status, :inserted_at])
     create index(:#{prefix}staging, [:status, :drained_at],
       name: :"#{prefix}staging_retention_idx"
     )
     """
   end
 
-  # ── Helper Functions ────────────────────────────────────────────────────
+  # ── Helper Functions ──────────────────────────────────────────────────────
 
   # Dialect-correct "now" default. Postgres has no datetime('now'); SQLite
   # requires expression defaults to be parenthesised.

@@ -3372,6 +3372,7 @@ the live status column.
 | 2026-11-08 | MEM-028 | B-2598 | `0cd7099` | Dream.Synthesize: tag-blocked clustering (overlap >= 0.3 within block), min size 3 + >=2 sources, verbatim-bullet fallback + optional LLM layer, tag-block slug so growing clusters update one page (cluster-hash fingerprint skips no-ops), slug races skip, pages.enabled gate + telemetry; 442/0 |
 | 2026-11-08 | MEM-029 | B-2599 | `bad8204` | Compression guard (page tokens <= max(200, source_tokens * ratio) from CITED sources only; create + body-change update; rejection report + warning + telemetry), pages.max_pages_per_scope cap ({:error, :page_cap_reached}, per-scope), Page.check/1 dry-run report; 450/0 |
 | 2026-11-09 | MEM-030 | B-2600 | `e2c8536` | Page retrieval - Page.search/3 vector-searches entries and returns pages citing matching entries, ranked by best match score; Search.search/2 gains :include_pages option that adds pages as candidate results with :kind: :page, :summary, :citation ([p] <slug>); Page.get/1 returns full body + cited sources; 456/0 |
+| 2026-11-09 | MEM-031 | B-2601 | `lexical` | Lexical indexes - recollect_entries.search_vector tsvector column + GIN index (PostgreSQL) or FTS5 table (SQLite/libSQL); Search.Lexical.search/3 returns entries with lexical_score; gated behind retrieval.mode config; MigrationGenerator emits dialect-specific DDL; 456/0 |
 | 2026-11-08 | — | v0.10.0 | `f380054` | Released v0.10.0 (tag on mem-phase0; Hex publish deferred) — Phase 4 Pages; full mix check green (clean compile, format, 450/0) |
 
 ---
@@ -3411,7 +3412,7 @@ the live status column.
 | MEM-029 | Citations + compression guard | 4 | 3 | 027, 028 | B-2599 | implemented_local |
 | MEM-030 | Page retrieval | 4 | 3 | 029, 021 | B-2600 | implemented_local |
 | MEM-030 | Page retrieval | 4 | 3 | 029, 021 | B-2600 | implemented_local |
-| MEM-031 | Lexical indexes | 5 | 4 | 014 | B-2601 | open |
+| MEM-031 | Lexical indexes | 5 | 4 | 014 | B-2601 | implemented_local |
 | MEM-032 | RRF fusion + global budget | 5 | 4 | 031, 018, 021 | B-2602 | open |
 | MEM-033 | Reranker behaviour | 5 | 2 | 032 | B-2603 | open |
 | MEM-034 | Eval harness + telemetry | 5 | 6 | 019, 032 | B-2604 | open |

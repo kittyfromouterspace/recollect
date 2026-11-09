@@ -273,8 +273,6 @@ defmodule Recollect.Page do
           {:ok, entry_results} ->
             # Find pages that cite matching entries
             page_scores = find_pages_for_entries(Config.repo(), entry_results)
-            # Find pages that cite matching entries
-            page_scores = find_pages_for_entries(Config.repo(), entry_results)
 
             pages =
               page_scores
