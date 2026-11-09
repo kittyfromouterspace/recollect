@@ -217,6 +217,15 @@ defmodule Recollect.Config do
     Application.get_env(:recollect, :staging, [])
   end
 
+  @doc "The `:pages` option group (`config :recollect, pages: [...]`).
+
+  Recognized keys: `:enabled` (page synthesis stage toggle, default false),
+  `:compression_ratio` (MEM-029 guard, default 0.5), and
+  `:max_pages_per_scope` (MEM-029 cap, default 100)."
+  def pages do
+    Application.get_env(:recollect, :pages, [])
+  end
+
   @doc "The `:dream` option group (`config :recollect, dream: [...]`).
 
   Recognized keys: `:enabled` (dream toggle), `:max_wall_ms` (run wall

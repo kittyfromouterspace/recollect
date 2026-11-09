@@ -280,7 +280,7 @@ defmodule Recollect.Page do
     |> put_if(:body_md, body)
     |> put_if(:summary, attrs[:summary] || attrs["summary"])
     |> put_if(:token_count, body && Tokenizer.estimate(body))
-    |> put_if(:source_hash, body && body_hash(body))
+    |> put_if(:source_hash, attrs[:source_hash] || (body && body_hash(body)))
     |> put_if(:version, attrs[:version])
     |> Map.put(:updated_at, DateTime.utc_now())
   end
