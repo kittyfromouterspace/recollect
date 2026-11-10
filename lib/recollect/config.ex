@@ -226,6 +226,20 @@ defmodule Recollect.Config do
     Application.get_env(:recollect, :pages, [])
   end
 
+  @doc """
+  Retrieval options (`config :recollect, retrieval: [...]`).
+
+  Recognized keys:
+
+  - `:rerank` — enable optional reranker (default: false)
+  - `:reranker` — reranker module implementing `Recollect.Reranker`
+    (default: `Recollect.Reranker`)
+  - `:rerank_max_items` — max fused items sent to reranker (default: 50)
+  """
+  def retrieval do
+    Application.get_env(:recollect, :retrieval, [])
+  end
+
   @doc "The `:dream` option group (`config :recollect, dream: [...]`).
 
   Recognized keys: `:enabled` (dream toggle), `:max_wall_ms` (run wall

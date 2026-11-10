@@ -59,6 +59,12 @@ defmodule Recollect.Search do
     mode = Keyword.get(opts, :mode, :vector)
     resolved_tier = Keyword.get(opts, :tier, :both)
 
+    # MEM-033: reranker config
+    retrieval_cfg = Application.get_env(:recollect, :retrieval, [])
+    rerank_enabled = Keyword.get(opts, :rerank, Keyword.get(retrieval_cfg, :rerank, false))
+    reranker_module = Keyword.get(opts, :reranker, Keyword.get(retrieval_cfg, :reranker, Recollect.Reranker))
+    rerank_max_items = Keyword.get(opts, :rerank_max_items, Keyword.get(retrieval_cfg, :rerank_max_items, 50))
+
     # Candidate generation: vector search
     {:ok, vector_results} = Vector.search(query_text, opts)
 
@@ -192,6 +198,18 @@ defmodule Recollect.Search do
 
           fusion_result.items
         end
+
+        # MEM-033: optional reranker applied to top rerank_max_items before budget
+        all_candidates =
+          if rerank_enabled do
+            {top, rest} = Enum.split(all_candidates, rerank_max_items)
+            case reranker_module.rerank(query_text, top, []) do
+              {:ok, reranked_top} -> reranked_top ++ rest
+              {:error, _reason} -> all_candidates
+            end
+          else
+            all_candidates
+          end
 
         # Apply budget if specified
         final_results =
