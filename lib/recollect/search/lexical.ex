@@ -51,7 +51,7 @@ defmodule Recollect.Search.Lexical do
 
     sql = """
     SELECT
-      me.id, me.content, me.summary, me.entry_type, me.source,
+      me.id, me.content, me.summary, me.entry_type, me.source, me.source_id,
       me.metadata, me.confidence, me.inserted_at,
       me.half_life_days, me.pinned, me.emotional_valence, me.access_count,
       me.last_accessed_at, me.context_hints,
@@ -61,12 +61,13 @@ defmodule Recollect.Search.Lexical do
       AND me.search_vector @@ plainto_tsquery('english', $2)
       AND ts_rank_cd(me.search_vector, plainto_tsquery('english', $2)) >= $3
     ORDER BY lexical_score DESC
-    LIMIT $4
+    LIMIT #{limit}
     """
 
-    case repo.query(sql, [scope_id, query_text, min_score, limit]) do
+    case repo.query(sql, [Recollect.Util.uuid_to_bin(scope_id), query_text, min_score]) do
       {:ok, %{rows: rows, columns: columns}} ->
         {:ok, Enum.map(rows, fn row -> Recollect.Util.row_to_map(columns, row) end)}
+
       {:error, reason} ->
         Logger.error("Recollect.Search.Lexical: #{inspect(reason)}")
         {:error, reason}
@@ -78,7 +79,7 @@ defmodule Recollect.Search.Lexical do
 
     sql = """
     SELECT
-      e.id, e.content, e.summary, e.entry_type, e.source,
+      e.id, e.content, e.summary, e.entry_type, e.source, e.source_id,
       e.metadata, e.confidence, e.inserted_at,
       e.half_life_days, e.pinned, e.emotional_valence, e.access_count,
       e.last_accessed_at, e.context_hints,
@@ -89,16 +90,16 @@ defmodule Recollect.Search.Lexical do
       AND fts MATCH ?
       AND bm25(recollect_entries_fts) <= ?
     ORDER BY lexical_score
-    LIMIT ?
+    LIMIT #{limit}
     """
 
-    case repo.query(sql, [scope_id, query_text, min_score, limit]) do
+    case repo.query(sql, [scope_id, query_text, min_score]) do
       {:ok, %{rows: rows, columns: columns}} ->
         {:ok, Enum.map(rows, fn row -> Recollect.Util.row_to_map(columns, row) end)}
+
       {:error, reason} ->
         Logger.error("Recollect.Search.Lexical: #{inspect(reason)}")
         {:error, reason}
     end
   end
-
 end

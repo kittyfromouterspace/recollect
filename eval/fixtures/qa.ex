@@ -45,4 +45,27 @@ defmodule Recollect.Eval.Fixtures.QA do
 
   @doc "Count of Q&A pairs."
   def count, do: length(@qa)
+
+  @doc """
+  Seed the ground-truth entries for this Q&A set (test-only).
+
+  Creates one entry per `relevant_id` in the given scope/owner, with the
+  entry's `source_id` set to that id so recall@k can match results back to
+  the ground truth. Content includes the question keywords and expected
+  answer so both lexical and hybrid retrieval can find it.
+
+  Returns the created entries. Uses `Recollect.Fixtures` (test env only).
+  """
+  def seed(scope_id, owner_id) do
+    Enum.flat_map(all(), fn qa ->
+      Enum.map(qa.relevant_ids, fn rid ->
+        Recollect.Fixtures.entry(
+          scope_id: scope_id,
+          owner_id: owner_id,
+          content: "#{qa.question} #{qa.expected_answer}",
+          source_id: rid
+        )
+      end)
+    end)
+  end
 end

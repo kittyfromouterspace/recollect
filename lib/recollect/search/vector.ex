@@ -584,19 +584,16 @@ defmodule Recollect.Search.Vector do
       search_terms
       |> Enum.with_index()
       |> Enum.map_join(" AND ", fn {_term, idx} ->
-        param_idx = 3 + (idx * 2)
+        param_idx = 3 + idx * 2
         "(me.content ILIKE $#{param_idx} OR me.summary ILIKE $#{param_idx + 1})"
       end)
 
     params = [Recollect.Util.uuid_to_bin(scope_id), Recollect.Util.uuid_to_bin(owner_id)]
     param_terms = Enum.flat_map(search_terms, fn t -> ["%" <> t <> "%", "%" <> t <> "%"] end)
 
-    params = [Recollect.Util.uuid_to_bin(scope_id), Recollect.Util.uuid_to_bin(owner_id)]
-    param_terms = Enum.flat_map(search_terms, fn t -> ["%" <> t <> "%", "%" <> t <> "%"] end)
-
     sql = """
     SELECT
-      me.id, me.content, me.summary, me.entry_type, me.source,
+      me.id, me.content, me.summary, me.entry_type, me.source, me.source_id,
       me.metadata, me.confidence, me.inserted_at,
       me.half_life_days, me.pinned, me.emotional_valence, me.access_count,
       me.last_accessed_at, me.context_hints, me.scope_id,
@@ -625,7 +622,7 @@ defmodule Recollect.Search.Vector do
       search_terms
       |> Enum.with_index()
       |> Enum.map_join(" AND ", fn {_term, idx} ->
-        param_idx = 3 + (idx * 2)
+        param_idx = 3 + idx * 2
         "(me.content LIKE ?#{param_idx} OR me.summary LIKE ?#{param_idx + 1})"
       end)
 
@@ -634,7 +631,7 @@ defmodule Recollect.Search.Vector do
 
     sql = """
     SELECT
-      me.id, me.content, me.summary, me.entry_type, me.source,
+      me.id, me.content, me.summary, me.entry_type, me.source, me.source_id,
       me.metadata, me.confidence, me.inserted_at,
       me.half_life_days, me.pinned, me.emotional_valence, me.access_count,
       me.last_accessed_at, me.context_hints, me.scope_id,

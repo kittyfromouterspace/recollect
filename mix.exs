@@ -81,7 +81,7 @@ defmodule Recollect.MixProject do
       links: %{
         "GitHub" => "https://github.com/kittyfromouterspace/recollect"
       },
-      files: ~w(lib priv .formatter.exs mix.exs usage-rules.md usage-rules)
+      files: ~w(lib priv eval .formatter.exs mix.exs usage-rules.md usage-rules)
     ]
   end
 

@@ -22,16 +22,17 @@ defmodule Recollect.Search do
   - `:diversity` — max items per entry_type (default: 2); pass `false` to disable
   - `:debug` — include per-source ranks in result metadata
   """
-  require Logger
-
-  @diagnostic_words ~w(why how debug trace depends caused broken failing)
-
   alias Recollect.Config
   alias Recollect.Page
   alias Recollect.Recall
   alias Recollect.Search.Fusion
   alias Recollect.Search.Graph
+  alias Recollect.Search.Lexical
   alias Recollect.Search.Vector
+
+  require Logger
+
+  @diagnostic_words ~w(why how debug trace depends caused broken failing)
 
   def search(query_text, opts \\ []) do
     tier = Keyword.get(opts, :tier, :both)
@@ -47,7 +48,7 @@ defmodule Recollect.Search do
       owner_id: Keyword.get(opts, :owner_id)
     }
 
-      Recollect.Telemetry.span([:recollect, :search], metadata, fn -> do_search(query_text, opts) end)
+    Recollect.Telemetry.span([:recollect, :search], metadata, fn -> do_search(query_text, opts) end)
   end
 
   defp do_search(query_text, opts) do
@@ -109,10 +110,17 @@ defmodule Recollect.Search do
 
     # Merge: vector entries first, keyword entries appended (deduped by id)
     vector_entry_ids = MapSet.new(Enum.map(entries, & &1["id"]))
-    merged_entries = entries ++ Enum.filter(keyword_entries, fn ke ->
-      id = Map.get(ke, "id") || Map.get(ke, :id)
-      id != nil and not MapSet.member?(vector_entry_ids, id)
-    end)
+
+    keyword_only =
+      Enum.filter(keyword_entries, fn ke ->
+        id = Map.get(ke, "id") || Map.get(ke, :id)
+        id != nil and not MapSet.member?(vector_entry_ids, id)
+      end)
+
+    merged_entries = entries ++ keyword_only
+
+    # Vector results + keyword-only entries, used both for `items` and fusion
+    merged_vector_results = vector_results ++ keyword_only
 
     # Update entries to merged set
     entries = merged_entries
@@ -131,176 +139,222 @@ defmodule Recollect.Search do
           entries
       end
 
-      # MEM-030: page search results, deduped against entries by citation
-      pages =
-        if Keyword.get(opts, :include_pages, false) do
-          case Page.search(query_text, opts[:scope_id], limit: limit, min_score: min_score) do
-            {:ok, page_results} ->
-              # Dedupe pages against entries by citation (slug)
-              entry_ids = MapSet.new(entries |> Enum.map(& &1["id"]) |> Enum.reject(&is_nil/1))
-              page_results
-              |> Enum.reject(fn p -> MapSet.member?(entry_ids, p[:id]) end)
-            {:error, _} -> []
-          end
-        else
-          []
+    # MEM-030: page search results, deduped against entries by citation
+    pages =
+      if Keyword.get(opts, :include_pages, false) do
+        case Page.search(query_text, opts[:scope_id], limit: limit, min_score: min_score) do
+          {:ok, page_results} ->
+            # Dedupe pages against entries by citation (slug)
+            entry_ids = entries |> Enum.map(& &1["id"]) |> Enum.reject(&is_nil/1) |> MapSet.new()
+            Enum.reject(page_results, fn p -> MapSet.member?(entry_ids, p[:id]) end)
+
+          {:error, _} ->
+            []
         end
+      else
+        []
+      end
 
-      # Candidate sources for fusion
-      candidate_sources = [%{source: :vector, results: vector_results}]
-      candidate_sources =
-        if mode in [:lexical, :hybrid] do
-          [%{source: :lexical, results: []} | candidate_sources]
-        else
-          candidate_sources
+    # Candidate sources for fusion.
+    # MEM-031: lexical candidates are actually fetched in :lexical/:hybrid modes.
+    # MEM-038: keyword-fallback entries participate via merged_vector_results.
+    lexical_results =
+      if mode in [:lexical, :hybrid] do
+        case Lexical.search(query_text, opts[:scope_id], limit: limit) do
+          {:ok, results} -> results
+          {:error, _} -> []
         end
+      else
+        []
+      end
 
-      # MEM-021: recall anchors for the current path/symbol
-      anchor_results =
-        case Keyword.get(opts, :anchors) do
-          kw when is_list(kw) ->
-            case kw[:path] do
-              nil -> []
-              path ->
-                case Recall.for_path(path, opts[:scope_id], limit: limit) do
-                  {:ok, hits} ->
-                    Enum.map(hits, fn h ->
-                      %{
-                        id: h.entry_id,
-                        content: h.excerpt || "",
-                        entry_type: h.entry_type || "note",
-                        score: h.confidence || 0.0,
-                        source: :recall_anchor
-                      }
-                    end)
-                  {:error, _} -> []
-                end
-              end
-            _ -> []
-        end
+    candidate_sources =
+      case mode do
+        :lexical ->
+          [%{source: :lexical, results: normalize_candidates(lexical_results, :entry)}]
 
-      candidate_sources =
-        if anchor_results != [] do
-          [%{source: :recall_anchor, results: anchor_results} | candidate_sources]
-        else
-          candidate_sources
-        end
-
-      # Graph expansion for Tier 1 entities
-      {entities, graph_relations} =
-        if resolved_tier?(opts) && Keyword.has_key?(opts, :owner_id) do
-          expand_graph(query_text, opts, hops)
-        else
-          {[], []}
-        end
-
-      # Edge following for Tier 2 entries
-      related_entries =
-        if resolved_tier?(opts) && mode in [:lightweight, :both] do
-          entry_ids = entries |> Enum.map(& &1["id"]) |> Enum.reject(&is_nil/1)
-
-          follow_opts = [
-            hops: hops,
-            include_superseded: Keyword.get(opts, :include_superseded, false)
+        _ ->
+          base = [
+            %{source: :vector, results: normalize_candidates(merged_vector_results, :entry)}
           ]
 
-          case Graph.follow_edges(entry_ids, follow_opts) do
-            {:ok, related} -> related
-            _ -> []
+          if mode == :hybrid and lexical_results != [] do
+            [%{source: :lexical, results: normalize_candidates(lexical_results, :entry)} | base]
+          else
+            base
           end
-        else
+      end
+
+    # MEM-021: recall anchors for the current path/symbol
+    anchor_results =
+      case Keyword.get(opts, :anchors) do
+        kw when is_list(kw) ->
+          case kw[:path] do
+            nil ->
+              []
+
+            path ->
+              case Recall.for_path(path, opts[:scope_id], limit: limit) do
+                {:ok, hits} ->
+                  Enum.map(hits, fn h ->
+                    %{
+                      id: h.entry_id,
+                      content: h.excerpt || "",
+                      entry_type: h.entry_type || "note",
+                      score: h.confidence || 0.0,
+                      source: :recall_anchor
+                    }
+                  end)
+
+                {:error, _} ->
+                  []
+              end
+          end
+
+        _ ->
           []
+      end
+
+    candidate_sources =
+      if anchor_results == [] do
+        candidate_sources
+      else
+        [%{source: :recall_anchor, results: normalize_candidates(anchor_results, :entry)} | candidate_sources]
+      end
+
+    # Graph expansion for Tier 1 entities
+    {entities, graph_relations} =
+      if resolved_tier?(opts) && Keyword.has_key?(opts, :owner_id) do
+        expand_graph(query_text, opts, hops)
+      else
+        {[], []}
+      end
+
+    # Edge following for Tier 2 entries
+    related_entries =
+      if resolved_tier in [:lightweight, :both] do
+        entry_ids = entries |> Enum.map(& &1["id"]) |> Enum.reject(&is_nil/1)
+
+        follow_opts = [
+          hops: hops,
+          include_superseded: Keyword.get(opts, :include_superseded, false)
+        ]
+
+        case Graph.follow_edges(entry_ids, follow_opts) do
+          {:ok, related} -> related
+          _ -> []
         end
+      else
+        []
+      end
 
-      # MEM-032: fuse candidates across sources using RRF
-      graph_candidates = []
-      all_candidates =
-        if mode == :vector do
-          # Legacy behavior: vector results only, no fusion
-          vector_results
-        else
-          # Build candidate list for fusion: each source contributes its results
-          fusion_sources =
-            [%{source: :vector, results: vector_results} | candidate_sources]
+    # MEM-032: fuse candidates across sources using RRF
+    graph_candidates = []
 
-          # Add graph entities as a candidate source
-          graph_candidates =
-            Enum.map(entities, fn e ->
-              %{
-                id: e["id"] || e[:id],
-                content: e["content"] || e[:content] || "",
-                entry_type: e["entry_type"] || e[:entry_type] || "entity",
-                score: e["score"] || e[:score] || 0.0,
-                source: :graph
-              }
-            end)
+    all_candidates =
+      if mode == :vector do
+        # Legacy behavior: vector results (+ keyword fallback hits), no fusion
+        merged_vector_results
+      else
+        # candidate_sources already contains vector (+ lexical when applicable).
+        # Add graph entities as a candidate source.
+        graph_candidates =
+          entities
+          |> Enum.map(fn e ->
+            %{
+              id: e["id"] || e[:id],
+              content: e["content"] || e[:content] || "",
+              entry_type: e["entry_type"] || e[:entry_type] || "entity",
+              score: e["score"] || e[:score] || 0.0,
+              source: :graph
+            }
+          end)
+          |> normalize_candidates(:entity)
 
-          fusion_sources =
-            [%{source: :graph, results: graph_candidates} | fusion_sources]
+        fusion_sources =
+          [%{source: :graph, results: graph_candidates} | candidate_sources]
 
-          # Fuse
-          {:ok, fusion_result} = Fusion.fuse(fusion_sources, k: 60, diversity: diversity, limit: limit)
+        # Fuse
+        {:ok, fusion_result} = Fusion.fuse(fusion_sources, k: 60, diversity: diversity, limit: limit)
 
-          fusion_result.items
+        fusion_result.items
+      end
+
+    # MEM-033: optional reranker applied to top rerank_max_items before budget
+    all_candidates =
+      if rerank_enabled do
+        {top, rest} = Enum.split(all_candidates, rerank_max_items)
+
+        case reranker_module.rerank(query_text, top, []) do
+          {:ok, reranked_top} -> reranked_top ++ rest
+          {:error, _reason} -> all_candidates
         end
+      else
+        all_candidates
+      end
 
-        # MEM-033: optional reranker applied to top rerank_max_items before budget
-        all_candidates =
-          if rerank_enabled do
-            {top, rest} = Enum.split(all_candidates, rerank_max_items)
-            case reranker_module.rerank(query_text, top, []) do
-              {:ok, reranked_top} -> reranked_top ++ rest
-              {:error, _reason} -> all_candidates
-            end
-          else
-            all_candidates
-          end
+    # Apply budget if specified
+    final_results =
+      if budget do
+        # Use Budget.fit for token budget
+        budget_result = Recollect.Budget.fit(all_candidates, budget)
+        budget_result.items
+      else
+        all_candidates
+      end
 
-        # Apply budget if specified
-        final_results =
-          if budget do
-            # Use Budget.fit for token budget
-            budget_result = Recollect.Budget.fit(all_candidates, budget)
-            budget_result.items
-          else
-            all_candidates
-          end
+    context_pack = %{
+      chunks: chunks,
+      entries: entries,
+      pages: pages,
+      related_entries: related_entries,
+      entities: entities,
+      relations: graph_relations,
+      query: query_text,
+      resolved_tier: resolved_tier,
+      resolved_mode: resolved_mode,
+      mode: mode,
+      items: final_results,
+      candidates_considered: length(vector_results) + length(anchor_results) + length(graph_candidates)
+    }
 
-      context_pack = %{
-        chunks: chunks,
-        entries: entries,
-        pages: pages,
-        related_entries: related_entries,
-        entities: entities,
-        relations: graph_relations,
-        query: query_text,
-        resolved_tier: resolved_tier,
-        resolved_mode: resolved_mode,
-        mode: mode,
-        items: final_results,
-        candidates_considered:
-          length(vector_results) + length(anchor_results) + length(graph_candidates)
-      }
+    # Add debug info if requested
+    context_pack =
+      if debug do
+        Map.put(context_pack, :debug, %{
+          vector_count: length(vector_results),
+          lexical_candidate_count: length(candidate_sources),
+          graph_count: length(graph_candidates),
+          anchor_count: length(anchor_results),
+          fused_count: length(final_results)
+        })
+      else
+        context_pack
+      end
 
-      # Add debug info if requested
-      context_pack =
-        if debug do
-          Map.put(context_pack, :debug, %{
-            vector_count: length(vector_results),
-            lexical_candidate_count: length(candidate_sources),
-            graph_count: length(graph_candidates),
-            anchor_count: length(anchor_results),
-            fused_count: length(final_results)
-          })
-        else
-          context_pack
-        end
-
-      {:ok, context_pack}
-    end
+    {:ok, context_pack}
+  end
 
   defp resolved_tier?(opts) do
     Keyword.get(opts, :tier, :both) in [:full, :both]
+  end
+
+  # Normalize candidate maps for RRF fusion.
+  #
+  # Vector/lexical results come from `Recollect.Util.row_to_map/2` and use
+  # string keys, while graph/anchor/page candidates are built with atom keys.
+  # `Fusion.fuse/2` groups by `:id` and diversifies by `:kind`, so every
+  # candidate must carry both as atom keys — otherwise all string-keyed items
+  # collapse into a single `nil`-id group.
+  defp normalize_candidates(items, default_kind) when is_list(items) do
+    Enum.map(items, fn item ->
+      id = item["id"] || item[:id]
+      kind = item["entry_type"] || item[:entry_type] || item[:kind] || default_kind
+
+      item
+      |> Map.put(:id, id)
+      |> Map.put(:kind, kind)
+    end)
   end
 
   @doc """

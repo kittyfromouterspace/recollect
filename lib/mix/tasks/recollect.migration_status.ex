@@ -29,6 +29,10 @@ defmodule Mix.Tasks.Recollect.MigrationStatus do
   def run(args) do
     {opts, _, _} = OptionParser.parse(args, strict: [repo: :string, gate: :boolean])
 
+    # The task queries the host repo and reads the host's migrations directory,
+    # so the host application (and its Repo) must be running.
+    Mix.Task.run("app.start")
+
     repo_module = resolve_repo(opts)
     gate = Keyword.get(opts, :gate, false)
 
@@ -45,11 +49,14 @@ defmodule Mix.Tasks.Recollect.MigrationStatus do
     end
 
     missing_count = Enum.count(results, &(&1.status == :missing))
+
     if missing_count > 0 do
       IO.puts("")
+
       IO.puts(
         IO.ANSI.red() <> "DRIFT DETECTED: #{missing_count} migration(s) missing from host mirror" <> IO.ANSI.reset()
       )
+
       System.halt(1)
     else
       IO.puts("")
@@ -67,17 +74,26 @@ defmodule Mix.Tasks.Recollect.MigrationStatus do
 
   defp load_manifest do
     path = Path.join([:code.priv_dir(:recollect), "recollect_migrations.manifest.json"])
-    File.read!(path) |> Jason.decode!()
+    path |> File.read!() |> Jason.decode!()
   end
 
   defp load_host_migrations do
     migrations_path = Path.join(["priv", "repo", "migrations"])
 
-    File.ls!(migrations_path)
-    |> Enum.map(fn filename ->
-      {version, _name} = parse_migration_filename(filename)
-      %{version: version, filename: filename}
-    end)
+    if File.dir?(migrations_path) do
+      migrations_path
+      |> File.ls!()
+      |> Enum.map(fn filename ->
+        {version, _name} = parse_migration_filename(filename)
+        %{version: version, filename: filename}
+      end)
+    else
+      IO.puts(
+        IO.ANSI.yellow() <> "warning: #{migrations_path} not found; treating host mirror as empty" <> IO.ANSI.reset()
+      )
+
+      []
+    end
   end
 
   defp parse_migration_filename(filename) do
@@ -89,7 +105,14 @@ defmodule Mix.Tasks.Recollect.MigrationStatus do
     case repo_module.query("SELECT version FROM schema_migrations ORDER BY version") do
       {:ok, result} ->
         Enum.map(result.rows, &hd/1)
-      {:error, _} ->
+
+      {:error, reason} ->
+        IO.puts(
+          IO.ANSI.yellow() <>
+            "warning: could not read schema_migrations (#{inspect(reason)}); treating applied set as empty" <>
+            IO.ANSI.reset()
+        )
+
         []
     end
   end
@@ -97,6 +120,7 @@ defmodule Mix.Tasks.Recollect.MigrationStatus do
   def analyze(manifest, host_migrations, applied_versions) do
     host_versions = MapSet.new(Enum.map(host_migrations, & &1.version))
     applied_set = MapSet.new(applied_versions)
+    manifest_versions = MapSet.new(Enum.map(manifest["migrations"], & &1["version"]))
 
     results =
       for m <- manifest["migrations"], into: [] do
@@ -114,7 +138,12 @@ defmodule Mix.Tasks.Recollect.MigrationStatus do
         %{version: version, name: m["name"], status: status}
       end
 
-    Enum.sort_by(results, & &1.version)
+    unknown =
+      host_migrations
+      |> Enum.reject(&MapSet.member?(manifest_versions, &1.version))
+      |> Enum.map(&%{version: &1.version, name: &1.filename, status: :unknown})
+
+    Enum.sort_by(results ++ unknown, & &1.version)
   end
 
   defp emit_table(results) do
@@ -138,6 +167,7 @@ defmodule Mix.Tasks.Recollect.MigrationStatus do
     end)
 
     unknown = Enum.filter(results, &(&1.status == :unknown))
+
     if length(unknown) > 0 do
       IO.puts("")
       IO.puts("Unknown host migrations (not in manifest):")
@@ -150,17 +180,18 @@ defmodule Mix.Tasks.Recollect.MigrationStatus do
       status == :applied -> IO.ANSI.green() <> "applied" <> IO.ANSI.reset()
       status == :mirrored_not_applied -> IO.ANSI.yellow() <> "mirrored-not-applied" <> IO.ANSI.reset()
       status == :missing -> IO.ANSI.red() <> "MISSING" <> IO.ANSI.reset()
-      true -> status |> to_string()
+      true -> to_string(status)
     end
   end
 
   defp emit_gate_report(results) do
     missing = Enum.filter(results, &(&1.status == :missing))
+
     report = %{
       status: if(length(missing) > 0, do: "fail", else: "pass"),
       total_migrations: length(results),
       missing_count: length(missing),
-      missing_migrations: Enum.map(missing, & %{version: &1.version, name: &1.name})
+      missing_migrations: Enum.map(missing, &%{version: &1.version, name: &1.name})
     }
 
     File.write!("gate-report.json", Jason.encode!(report, pretty: true))

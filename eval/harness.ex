@@ -2,10 +2,22 @@ defmodule Recollect.Eval.Harness do
   @moduledoc """
   Memory-on/memory-off eval harness (MEM-034).
 
-  Runs Q&A queries against search with memory on and off, computing
-  recall@k, precision@k, and answer correctness deltas.
+  Runs the Q&A fixture set against two retrieval arms and reports
+  recall@k, precision@k, and answer-correctness deltas:
 
-  Opt-in: tagged `:eval` so it doesn't run in default CI.
+    * **memory_off** — lexical-only retrieval (`Recollect.Search.Lexical`),
+      the naive-keyword baseline a host would have without the memory pipeline.
+    * **memory_on** — full hybrid retrieval (`Recollect.Search.search/2`
+      with `mode: :hybrid`), i.e. vector + lexical + graph + recall anchors
+      with keyword fallback.
+
+  The delta between the two arms is the measured value of the memory
+  pipeline over a naive keyword baseline.
+
+  Ground truth matching uses each result entry's `source_id`, seeded via
+  `Recollect.Eval.Fixtures.QA.seed/2` (test env).
+
+  Opt-in: tests are tagged `:eval` so they don't run in default CI.
   """
 
   alias Recollect.Eval.Fixtures.QA
@@ -14,52 +26,77 @@ defmodule Recollect.Eval.Harness do
   @doc """
   Run the full eval suite.
 
+  ## Options
+
+  - `:scope_id` — scope to query (required). Seed ground truth first with
+    `Recollect.Eval.Fixtures.QA.seed/2` for meaningful recall numbers.
+  - `:limit` — per-query result cap (default: 10)
+
   Returns a map with per-metric results for memory_on and memory_off,
   plus the delta between them.
   """
   def run(opts \\ []) do
-    qa_pairs = QA.all()
-    results = Enum.map(qa_pairs, fn qa ->
-      %{
-        id: qa.id,
-        question: qa.question,
-        relevant_ids: qa.relevant_ids,
-        expected_answer: qa.expected_answer,
-        memory_off: run_query(qa.question, memory_on: false),
-        memory_on: run_query(qa.question, memory_on: true)
-      }
-    end)
+    scope_id = Keyword.fetch!(opts, :scope_id)
+    limit = Keyword.get(opts, :limit, 10)
+
+    results =
+      Enum.map(QA.all(), fn qa ->
+        %{
+          id: qa.id,
+          question: qa.question,
+          relevant_ids: qa.relevant_ids,
+          expected_answer: qa.expected_answer,
+          memory_off: run_query(qa.question, scope_id, limit, :lexical),
+          memory_on: run_query(qa.question, scope_id, limit, :hybrid)
+        }
+      end)
 
     summarize(results)
   end
 
-  @doc "Run a single query and return result IDs and contents."
-  defp run_query(question, memory_on: memory_on) do
-    # Use Search.search to retrieve results for the question
-    case Recollect.search(question, mode: :hybrid, limit: 10) do
-      {:ok, context} ->
-        result_ids = Enum.map(context.items, & &1.id)
-        result_contents = Enum.map(context.items, & &1.content)
-        %{ids: result_ids, contents: result_contents}
-
-      {:error, _} ->
-        %{ids: [], contents: []}
+  # memory_off = lexical-only baseline; memory_on = full hybrid pipeline.
+  defp run_query(question, scope_id, limit, :lexical) do
+    case Recollect.Search.Lexical.search(question, scope_id, limit: limit) do
+      {:ok, results} -> results_to_fields(results)
+      {:error, _} -> %{ids: [], contents: []}
     end
   end
 
+  defp run_query(question, scope_id, limit, :hybrid) do
+    case Recollect.search(question, scope_id: scope_id, mode: :hybrid, limit: limit) do
+      {:ok, context} -> results_to_fields(context.items)
+      {:error, _} -> %{ids: [], contents: []}
+    end
+  end
+
+  # Result maps may be string-keyed (row_to_map) or atom-keyed (fusion output).
+  defp results_to_fields(results) do
+    %{
+      ids: Enum.map(results, &field(&1, "source_id")),
+      contents: Enum.map(results, &field(&1, "content"))
+    }
+  end
+
+  defp field(item, key) do
+    Map.get(item, key) || Map.get(item, String.to_atom(key))
+  end
+
   defp summarize(results) do
-    recall_off = Enum.map(results, & Metrics.recall_at_k(&1.relevant_ids, &1.memory_off.ids, 10))
-    recall_on = Enum.map(results, & Metrics.recall_at_k(&1.relevant_ids, &1.memory_on.ids, 10))
+    recall_off = Enum.map(results, &Metrics.recall_at_k(&1.relevant_ids, &1.memory_off.ids, 10))
+    recall_on = Enum.map(results, &Metrics.recall_at_k(&1.relevant_ids, &1.memory_on.ids, 10))
 
-    precision_off = Enum.map(results, & Metrics.precision_at_k(&1.relevant_ids, &1.memory_off.ids, 10))
-    precision_on = Enum.map(results, & Metrics.precision_at_k(&1.relevant_ids, &1.memory_on.ids, 10))
+    precision_off = Enum.map(results, &Metrics.precision_at_k(&1.relevant_ids, &1.memory_off.ids, 10))
+    precision_on = Enum.map(results, &Metrics.precision_at_k(&1.relevant_ids, &1.memory_on.ids, 10))
 
-    correctness_off = Enum.map(results, fn r ->
-      Metrics.answer_correct?(r.expected_answer, r.memory_off.contents)
-    end)
-    correctness_on = Enum.map(results, fn r ->
-      Metrics.answer_correct?(r.expected_answer, r.memory_on.contents)
-    end)
+    correctness_off =
+      Enum.map(results, fn r ->
+        Metrics.answer_correct?(r.expected_answer, r.memory_off.contents)
+      end)
+
+    correctness_on =
+      Enum.map(results, fn r ->
+        Metrics.answer_correct?(r.expected_answer, r.memory_on.contents)
+      end)
 
     %{
       count: length(results),
@@ -81,5 +118,5 @@ defmodule Recollect.Eval.Harness do
     }
   end
 
-  defp correctness_count(booleans), do: Enum.count(booleans, &(&1))
+  defp correctness_count(booleans), do: Enum.count(booleans, & &1)
 end

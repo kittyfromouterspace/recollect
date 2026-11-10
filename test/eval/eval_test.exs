@@ -2,6 +2,7 @@ defmodule Recollect.EvalTest do
   use Recollect.DataCase, async: false
 
   alias Recollect.Eval.Fixtures.QA
+  alias Recollect.Eval.Harness
   alias Recollect.Eval.Metrics
 
   describe "QA fixtures" do
@@ -9,7 +10,8 @@ defmodule Recollect.EvalTest do
       qa_pairs = QA.all()
       assert length(qa_pairs) > 0
 
-      hd(qa_pairs)
+      qa_pairs
+      |> hd()
       |> then(fn qa ->
         assert is_binary(qa.question)
         assert is_list(qa.relevant_ids)
@@ -65,8 +67,15 @@ defmodule Recollect.EvalTest do
   end
 
   describe "Harness" do
-    test "run returns baseline structure" do
-      result = Recollect.Eval.Harness.run()
+    setup do
+      scope_id = Fixtures.scope_id()
+      owner_id = Fixtures.owner_id()
+      QA.seed(scope_id, owner_id)
+      {:ok, scope_id: scope_id, owner_id: owner_id}
+    end
+
+    test "run returns baseline structure", %{scope_id: scope_id} do
+      result = Harness.run(scope_id: scope_id)
 
       assert is_map(result)
       assert is_integer(result.count)
@@ -77,6 +86,15 @@ defmodule Recollect.EvalTest do
       assert is_number(result.delta.recall_at_10)
       assert is_number(result.delta.precision_at_10)
     end
-  end
 
+    test "seeded ground truth yields non-zero recall on at least one arm", %{scope_id: scope_id} do
+      result = Harness.run(scope_id: scope_id)
+
+      # With ground-truth entries seeded, the hybrid arm should retrieve
+      # some of them (keyword fallback works without embeddings).
+      assert result.memory_on.recall_at_10 > 0.0
+      # Answer correctness should be non-zero on the hybrid arm too.
+      assert result.memory_on.answer_correct_rate > 0.0
+    end
+  end
 end

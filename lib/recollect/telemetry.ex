@@ -117,19 +117,19 @@ defmodule Recollect.Telemetry do
     end
   end
 
+  defp extract_measurements({:ok, %{items: items, candidates_considered: candidates}}) do
+    {%{
+       result_count: length(items || []),
+       candidates_considered: candidates
+     }, %{status: :ok}}
+  end
+
   defp extract_measurements({:ok, %{entries: entries, chunks: chunks, entities: entities}}) do
     {%{
        result_count: length(entries || []) + length(chunks || []),
        entries_count: length(entries || []),
        chunks_count: length(chunks || []),
        entities_count: length(entities || [])
-     }, %{status: :ok}}
-  end
-
-  defp extract_measurements({:ok, %{items: items, candidates_considered: candidates}}) do
-    {%{
-       result_count: length(items || []),
-       candidates_considered: candidates
      }, %{status: :ok}}
   end
 
