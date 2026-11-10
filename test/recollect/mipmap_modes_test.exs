@@ -1,7 +1,6 @@
 defmodule Recollect.MipmapModesTest do
   use Recollect.DataCase, async: false
 
-  import Ecto.Query
 
   alias Recollect.Embedding.CountingMock
   alias Recollect.Embedding.Mock

@@ -71,7 +71,7 @@ defmodule Recollect.BriefTest do
       assert brief.text =~ "verified"
     end
 
-    test "stays under budget for 1, 10, and 100 candidates", %{scope_id: scope_id, owner_id: owner_id} do
+    test "stays under budget for 1, 10, and 100 candidates", %{scope_id: _scope_id, owner_id: owner_id} do
       for count <- [1, 10, 100] do
         scope = Fixtures.scope_id()
 

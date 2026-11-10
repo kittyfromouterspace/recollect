@@ -7,7 +7,7 @@ defmodule Recollect.MixProject do
     [
       app: :recollect,
       version: @version,
-      elixir: "~> 1.17",
+      elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
@@ -90,7 +90,7 @@ defmodule Recollect.MixProject do
       main: "Recollect",
       source_url: "https://github.com/kittyfromouterspace/recollect",
       source_ref: "v#{@version}",
-      extras: ["README.md", "LICENSE"]
+      extras: ["README.md", "LICENSE", "docs/architecture.md", "docs/telemetry.md"]
     ]
   end
 end

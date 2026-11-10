@@ -354,7 +354,7 @@ defmodule Recollect.LearningIdempotencyTest do
     end
 
     test "denied provider writes no events (consent gate upstream)" do
-      scope_id = Fixtures.scope_id()
+      _scope_id = Fixtures.scope_id()
 
       tmp = Path.join(System.tmp_dir!(), "denied-consent-#{System.unique_integer([:positive])}")
       File.mkdir_p!(tmp)

@@ -2,7 +2,6 @@ defmodule Recollect.EvidenceTest do
   use Recollect.DataCase, async: false
 
   alias Recollect.Evidence
-  alias Recollect.Schema.Event, as: EventRow
 
   describe "link/3" do
     test "links an entry to an event and for_entry/1 returns it with the event preloaded" do

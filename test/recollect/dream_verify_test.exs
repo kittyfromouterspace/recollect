@@ -1,7 +1,6 @@
 defmodule Recollect.DreamVerifyTest do
   use Recollect.DataCase, async: false
 
-  import Ecto.Query, only: [from: 2]
 
   alias Recollect.Config
   alias Recollect.Dream
@@ -45,7 +44,7 @@ defmodule Recollect.DreamVerifyTest do
     Config.repo().get!(Entry, entry_id)
   end
 
-  defp run_verify(scope_id, extra \\ []) do
+  defp run_verify(scope_id, extra) do
     Dream.run(scope_id, Keyword.merge([stages: [Verify]], extra))
   end
 

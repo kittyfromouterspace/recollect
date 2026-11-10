@@ -1,7 +1,6 @@
 defmodule Recollect.SearchFallbackTest do
   use Recollect.DataCase, async: false
 
-  alias Recollect.Config
 
   @items [
     %{kind: :entry, id: "kw-1", content: "The deploy script runs database migrations first.", entry_type: "note"},

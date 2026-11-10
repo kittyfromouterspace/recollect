@@ -12,7 +12,7 @@ defmodule Recollect.Learner.Git.StackDetector do
 
   When a technology is removed (e.g. webpack disappears, esbuild appears),
   the detector returns a `%{type: :deprecation, from: ..., to: ...}` transition
-  that the caller feeds into `Recollect.Invalidation.deprecate/3` to weaken
+  that the caller feeds into `Recollect.Invalidation.invalidate/3` to weaken
   memories about the old technology.
   """
 

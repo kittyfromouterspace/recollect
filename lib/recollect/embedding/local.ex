@@ -59,8 +59,8 @@ defmodule Recollect.Embedding.Local do
   @doc """
   Build the Nx.Serving for the embedding model.
 
-  Called by `Recollect.Application` during startup. Downloads model weights
-  from HuggingFace Hub on first call (cached afterward).
+  Called by the Recollect application supervisor during startup. Downloads
+  model weights from HuggingFace Hub on first call (cached afterward).
 
   Returns `{:ok, serving}` or `{:error, reason}`.
   """

@@ -1,9 +1,6 @@
 defmodule Recollect.PageSearchTest do
   use Recollect.DataCase, async: false
 
-  import Ecto.Query, only: [from: 2]
-
-  alias Recollect.Config
   alias Recollect.Embedding.Mock
   alias Recollect.Page
   alias Recollect.Search
@@ -15,7 +12,7 @@ defmodule Recollect.PageSearchTest do
     {:ok, scope_id: scope_id, owner_id: owner_id}
   end
 
-  defp create_page(scope_id, owner_id, slug, title, body_md, summary, sources \\ []) do
+  defp create_page(scope_id, owner_id, slug, title, body_md, summary, sources) do
     Page.create(
       %{
         scope_id: scope_id,
@@ -40,16 +37,6 @@ defmodule Recollect.PageSearchTest do
     end
 
     entry
-  end
-
-  # Search using the exact entry content for deterministic matching
-  defp search_exact(scope_id, content) do
-    Page.search(content, scope_id)
-  end
-
-  # Search with the same text as the entry content for deterministic matching
-  defp search_content(scope_id, content) do
-    Page.search(content, scope_id)
   end
 
   describe "Page.search/3 (MEM-030)" do
@@ -143,7 +130,6 @@ defmodule Recollect.PageSearchTest do
 
     test "include_pages: false preserves old behavior", %{scope_id: scope_id} do
       {:ok, without} = Search.search("deploy", scope_id: scope_id, include_pages: false)
-      {:ok, with} = Search.search("deploy", scope_id: scope_id, include_pages: true)
 
       assert without.pages == nil || without.pages == []
     end

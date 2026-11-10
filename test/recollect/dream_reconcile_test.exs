@@ -101,7 +101,7 @@ defmodule Recollect.DreamReconcileTest do
       scope_id = Fixtures.scope_id()
       owner_id = Fixtures.owner_id()
 
-      {a, b} = contradictory_pair(scope_id, owner_id, "Thesis A.", "Antithesis B.")
+      {a, _b} = contradictory_pair(scope_id, owner_id, "Thesis A.", "Antithesis B.")
 
       synthesis_fn = fn _messages, _opts -> {:ok, "Both statements agree under config-specific defaults."} end
       run_reconcile(scope_id, synthesis_fn: synthesis_fn)

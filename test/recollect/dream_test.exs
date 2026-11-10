@@ -85,7 +85,7 @@ defmodule Recollect.DreamTest do
 
   defmodule CancellableStage do
     @moduledoc false
-    def run(scope_id, opts) do
+    def run(_scope_id, opts) do
       Counters.bump("cancellable")
       run_id = Keyword.fetch!(opts, :dream_run_id)
       Dream.cancel(run_id)
@@ -219,7 +219,7 @@ defmodule Recollect.DreamTest do
     end
 
     test "the plan doubles as the dry run: no stages, no writes", %{scope_id: scope_id} do
-      assert {:ok, plan} = Dream.plan(scope_id, stages: [OkStage])
+      assert {:ok, _plan} = Dream.plan(scope_id, stages: [OkStage])
       assert Counters.count("ok") == 0
       assert marker_contents(scope_id) == []
     end

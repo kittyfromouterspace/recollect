@@ -1,7 +1,6 @@
 defmodule Recollect.SchemaIndexTest do
   use Recollect.DataCase, async: false
 
-  import Ecto.Query, only: [from: 2]
 
   alias Recollect.Config
   alias Recollect.Schema.Entry

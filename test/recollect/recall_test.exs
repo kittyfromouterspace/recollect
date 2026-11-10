@@ -5,7 +5,6 @@ defmodule Recollect.RecallTest do
 
   alias Recollect.Config
   alias Recollect.Recall
-  alias Recollect.Schema.Entry
   alias Recollect.Schema.RecallAnchor
 
   setup do
