@@ -11,11 +11,17 @@ defmodule Recollect.Telemetry do
 
   ### Search
   - `[:recollect, :search, :start]` — Search started
-  - `[:recollect, :search, :stop]` — Search completed
+  - `[:recollect, :search, :stop]` — Search completed (candidates, injected, tokens, truncated)
   - `[:recollect, :search, :exception]` — Search failed
 
   ### Vector Search
   - `[:recollect, :search, :vector, :stop]` — Vector search completed
+
+  ### Brief
+  - `[:recollect, :brief, :build]` — Brief built (used_tokens, items, cache_hit)
+
+  ### Dream
+  - `[:recollect, :dream, :stage]` — Dream stage completed (stage, items, duration, budget)
 
   ### Pipeline
   - `[:recollect, :pipeline, :start]` — Pipeline started
@@ -28,8 +34,12 @@ defmodule Recollect.Telemetry do
   ### Extraction
   - `[:recollect, :extract, :stop]` — Entity extraction completed
 
-  ### Maintenance
+  ### Consolidation
+  - `[:recollect, :consolidation, :pass]` — Consolidation pass completed (pass, count, duration)
   - `[:recollect, :decay, :stop]` — Decay pass completed
+
+  ### Recall
+  - `[:recollect, :recall, :hit]` — Recall anchor hit (anchor_type, items)
 
   ### Learning
   - `[:recollect, :learning, :start]` — Learning pipeline started
@@ -113,6 +123,13 @@ defmodule Recollect.Telemetry do
        entries_count: length(entries || []),
        chunks_count: length(chunks || []),
        entities_count: length(entities || [])
+     }, %{status: :ok}}
+  end
+
+  defp extract_measurements({:ok, %{items: items, candidates_considered: candidates}}) do
+    {%{
+       result_count: length(items || []),
+       candidates_considered: candidates
      }, %{status: :ok}}
   end
 
