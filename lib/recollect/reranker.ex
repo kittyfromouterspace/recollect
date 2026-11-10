@@ -31,10 +31,10 @@ defmodule Recollect.Reranker do
   If the reranker errors, the fused order is preserved as a fallback.
   """
 
+  @behaviour Recollect.Reranker
+
   @callback rerank(query :: String.t(), items :: list(), opts :: keyword()) ::
               {:ok, list()} | {:error, term()}
-
-  @behaviour Recollect.Reranker
 
   @doc """
   No-op reranker — preserves the fused order unchanged.

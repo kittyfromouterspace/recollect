@@ -1,11 +1,13 @@
 defmodule Recollect.MigrationStatusTest do
   use Recollect.DataCase, async: false
 
+  alias Mix.Tasks.Recollect.MigrationStatus
+
   @manifest_path Path.join([:code.priv_dir(:recollect), "recollect_migrations.manifest.json"])
 
   describe "manifest" do
     test "parses and covers every migration" do
-      manifest = File.read!(@manifest_path) |> Jason.decode!()
+      manifest = @manifest_path |> File.read!() |> Jason.decode!()
 
       assert is_list(manifest["migrations"])
       assert length(manifest["migrations"]) > 0
@@ -31,24 +33,29 @@ defmodule Recollect.MigrationStatusTest do
 
   describe "analyze" do
     test "reports all applied when host matches manifest" do
-      manifest = File.read!(@manifest_path) |> Jason.decode!()
-      host_migrations = Enum.map(manifest["migrations"], fn m -> %{version: m["version"], filename: "#{m["version"]}_#{m["name"]}.exs"} end)
+      manifest = @manifest_path |> File.read!() |> Jason.decode!()
+
+      host_migrations =
+        Enum.map(manifest["migrations"], fn m ->
+          %{version: m["version"], filename: "#{m["version"]}_#{m["name"]}.exs"}
+        end)
+
       applied_versions = Enum.map(manifest["migrations"], & &1["version"])
 
-      results = Mix.Tasks.Recollect.MigrationStatus.analyze(manifest, host_migrations, applied_versions)
+      results = MigrationStatus.analyze(manifest, host_migrations, applied_versions)
 
       assert length(results) == length(manifest["migrations"])
       assert Enum.all?(results, &(&1.status == :applied))
     end
 
     test "reports missing when host lacks a migration" do
-      manifest = File.read!(@manifest_path) |> Jason.decode!()
+      manifest = @manifest_path |> File.read!() |> Jason.decode!()
       # Use only the first migration as host
-      first_m = Enum.take(manifest["migrations"], 1) |> List.first()
+      first_m = manifest["migrations"] |> Enum.take(1) |> List.first()
       host_migrations = [%{version: first_m["version"], filename: "#{first_m["version"]}_#{first_m["name"]}.exs"}]
       applied_versions = []
 
-      results = Mix.Tasks.Recollect.MigrationStatus.analyze(manifest, host_migrations, applied_versions)
+      results = MigrationStatus.analyze(manifest, host_migrations, applied_versions)
 
       missing = Enum.filter(results, &(&1.status == :missing))
       assert length(missing) > 0
@@ -56,11 +63,17 @@ defmodule Recollect.MigrationStatusTest do
     end
 
     test "reports mirrored-not-applied when host has migration but not applied" do
-      manifest = File.read!(@manifest_path) |> Jason.decode!()
-      host_migrations = Enum.map(manifest["migrations"], fn m -> %{version: m["version"], filename: "#{m["version"]}_#{m["name"]}.exs"} end)
-      applied_versions = []  # none applied
+      manifest = @manifest_path |> File.read!() |> Jason.decode!()
 
-      results = Mix.Tasks.Recollect.MigrationStatus.analyze(manifest, host_migrations, applied_versions)
+      host_migrations =
+        Enum.map(manifest["migrations"], fn m ->
+          %{version: m["version"], filename: "#{m["version"]}_#{m["name"]}.exs"}
+        end)
+
+      # none applied
+      applied_versions = []
+
+      results = MigrationStatus.analyze(manifest, host_migrations, applied_versions)
 
       mirrored = Enum.filter(results, &(&1.status == :mirrored_not_applied))
       assert length(mirrored) == length(manifest["migrations"])

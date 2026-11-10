@@ -28,7 +28,7 @@ defmodule Recollect.SearchFallbackTest do
     } do
       # Temporarily disable embeddings
       orig = Application.get_env(:recollect, :embedding)
-      Application.put_env(:recollect, :embedding, [provider: nil])
+      Application.put_env(:recollect, :embedding, provider: nil)
 
       try do
         {:ok, context} =
@@ -49,14 +49,14 @@ defmodule Recollect.SearchFallbackTest do
       Fixtures.entry(scope_id: other_scope, owner_id: owner_id, content: "Other scope deploy script")
 
       orig = Application.get_env(:recollect, :embedding)
-      Application.put_env(:recollect, :embedding, [provider: nil])
+      Application.put_env(:recollect, :embedding, provider: nil)
 
       try do
         {:ok, context} =
           Recollect.search("deploy script", scope_id: scope_id, owner_id: owner_id, mode: :hybrid)
 
         entry_ids = Enum.map(context.entries, & &1["id"])
-        refute Enum.member?(entry_ids, :other_scope_deploy_script)
+        refute :other_scope_deploy_script in entry_ids
       after
         Application.put_env(:recollect, :embedding, orig)
       end
@@ -67,7 +67,7 @@ defmodule Recollect.SearchFallbackTest do
       owner_id: owner_id
     } do
       orig = Application.get_env(:recollect, :embedding)
-      Application.put_env(:recollect, :embedding, [provider: nil])
+      Application.put_env(:recollect, :embedding, provider: nil)
 
       try do
         {:ok, context} =

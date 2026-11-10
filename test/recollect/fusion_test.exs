@@ -6,15 +6,21 @@ defmodule Recollect.FusionTest do
   describe "Fusion.fuse/2 (MEM-032)" do
     test "combines results from multiple sources using RRF" do
       results = [
-        %{source: :vector, results: [
-          %{kind: :entry, id: "1", content: "first"},
-          %{kind: :entry, id: "2", content: "second"},
-          %{kind: :entry, id: "3", content: "third"}
-        ]},
-        %{source: :lexical, results: [
-          %{kind: :entry, id: "2", content: "second"},
-          %{kind: :entry, id: "4", content: "fourth"}
-        ]}
+        %{
+          source: :vector,
+          results: [
+            %{kind: :entry, id: "1", content: "first"},
+            %{kind: :entry, id: "2", content: "second"},
+            %{kind: :entry, id: "3", content: "third"}
+          ]
+        },
+        %{
+          source: :lexical,
+          results: [
+            %{kind: :entry, id: "2", content: "second"},
+            %{kind: :entry, id: "4", content: "fourth"}
+          ]
+        }
       ]
 
       {:ok, fusion_result} = Fusion.fuse(results)
@@ -28,14 +34,20 @@ defmodule Recollect.FusionTest do
 
     test "applies RRF k parameter correctly" do
       results = [
-        %{source: :vector, results: [
-          %{kind: :entry, id: "1"},
-          %{kind: :entry, id: "2"}
-        ]},
-        %{source: :graph, results: [
-          %{kind: :entry, id: "2"},
-          %{kind: :entry, id: "1"}
-        ]}
+        %{
+          source: :vector,
+          results: [
+            %{kind: :entry, id: "1"},
+            %{kind: :entry, id: "2"}
+          ]
+        },
+        %{
+          source: :graph,
+          results: [
+            %{kind: :entry, id: "2"},
+            %{kind: :entry, id: "1"}
+          ]
+        }
       ]
 
       {:ok, r60} = Fusion.fuse(results, k: 60)
@@ -50,13 +62,16 @@ defmodule Recollect.FusionTest do
 
     test "applies diversity limit (max 2 per kind)" do
       results = [
-        %{source: :vector, results: [
-          %{kind: :entry, id: "1", entry_type: "note"},
-          %{kind: :entry, id: "2", entry_type: "note"},
-          %{kind: :entry, id: "3", entry_type: "note"},
-          %{kind: :chunk, id: "4", entry_type: "paragraph"},
-          %{kind: :chunk, id: "5", entry_type: "paragraph"}
-        ]}
+        %{
+          source: :vector,
+          results: [
+            %{kind: :entry, id: "1", entry_type: "note"},
+            %{kind: :entry, id: "2", entry_type: "note"},
+            %{kind: :entry, id: "3", entry_type: "note"},
+            %{kind: :chunk, id: "4", entry_type: "paragraph"},
+            %{kind: :chunk, id: "5", entry_type: "paragraph"}
+          ]
+        }
       ]
 
       {:ok, fusion_result} = Fusion.fuse(results, diversity: 2)
@@ -67,11 +82,14 @@ defmodule Recollect.FusionTest do
 
     test "disables diversity when set to false" do
       results = [
-        %{source: :vector, results: [
-          %{kind: :entry, id: "1"},
-          %{kind: :entry, id: "2"},
-          %{kind: :entry, id: "3"}
-        ]}
+        %{
+          source: :vector,
+          results: [
+            %{kind: :entry, id: "1"},
+            %{kind: :entry, id: "2"},
+            %{kind: :entry, id: "3"}
+          ]
+        }
       ]
 
       {:ok, fusion_result} = Fusion.fuse(results, diversity: false)
@@ -80,13 +98,16 @@ defmodule Recollect.FusionTest do
 
     test "applies limit" do
       results = [
-        %{source: :vector, results: [
-          %{kind: :entry, id: "1"},
-          %{kind: :entry, id: "2"},
-          %{kind: :entry, id: "3"},
-          %{kind: :entry, id: "4"},
-          %{kind: :entry, id: "5"}
-        ]}
+        %{
+          source: :vector,
+          results: [
+            %{kind: :entry, id: "1"},
+            %{kind: :entry, id: "2"},
+            %{kind: :entry, id: "3"},
+            %{kind: :entry, id: "4"},
+            %{kind: :entry, id: "5"}
+          ]
+        }
       ]
 
       {:ok, fusion_result} = Fusion.fuse(results, limit: 3, diversity: false)
@@ -101,15 +122,21 @@ defmodule Recollect.FusionTest do
 
     test "dedupes items by id across sources" do
       results = [
-        %{source: :vector, results: [
-          %{kind: :entry, id: "1", content: "a"},
-          %{kind: :entry, id: "2", content: "b"}
-        ]},
-        %{source: :graph, results: [
-          %{kind: :entry, id: "1", content: "a"},
-          %{kind: :entry, id: "2", content: "b"},
-          %{kind: :entry, id: "3", content: "c"}
-        ]}
+        %{
+          source: :vector,
+          results: [
+            %{kind: :entry, id: "1", content: "a"},
+            %{kind: :entry, id: "2", content: "b"}
+          ]
+        },
+        %{
+          source: :graph,
+          results: [
+            %{kind: :entry, id: "1", content: "a"},
+            %{kind: :entry, id: "2", content: "b"},
+            %{kind: :entry, id: "3", content: "c"}
+          ]
+        }
       ]
 
       {:ok, fusion_result} = Fusion.fuse(results, diversity: false)
@@ -120,18 +147,21 @@ defmodule Recollect.FusionTest do
 
     test "removes private fields from output items" do
       results = [
-        %{source: :vector, results: [
-          %{kind: :entry, id: "1", content: "test"}
-        ]}
+        %{
+          source: :vector,
+          results: [
+            %{kind: :entry, id: "1", content: "test"}
+          ]
+        }
       ]
 
       {:ok, fusion_result} = Fusion.fuse(results)
       item = hd(fusion_result.items)
-      assert !Map.has_key?(item, :_rank)
-      assert !Map.has_key?(item, :_source)
-      assert !Map.has_key?(item, :_score)
-      assert !Map.has_key?(item, :_sources)
-      assert !Map.has_key?(item, :_ranks)
+      refute Map.has_key?(item, :_rank)
+      refute Map.has_key?(item, :_source)
+      refute Map.has_key?(item, :_score)
+      refute Map.has_key?(item, :_sources)
+      refute Map.has_key?(item, :_ranks)
       assert item.content == "test"
     end
   end

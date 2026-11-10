@@ -31,6 +31,7 @@ defmodule Recollect.PageSearchTest do
 
   defp create_entry_with_embedding(scope_id, owner_id, content, tags \\ []) do
     {:ok, embedding} = Mock.embed(content, [])
+
     entry =
       Fixtures.entry(scope_id: scope_id, owner_id: owner_id, content: content, embedding: embedding)
 
@@ -100,7 +101,7 @@ defmodule Recollect.PageSearchTest do
       {:ok, results} = Page.search("The deploy script requires bash 5.", scope_id)
 
       page_result = Enum.find(results, &(&1.id == page.id))
-      refute page_result == nil
+      assert page_result
       assert length(page_result.sources) >= 1
     end
 

@@ -13,24 +13,27 @@ defmodule Recollect.RerankerTest do
 
   # Helper rerankers for testing
   defmodule ReversingReranker do
-    @behaviour Recollect.Reranker
+    @moduledoc false
+    @behaviour Reranker
 
     @impl true
     def rerank(_query, items, _opts) do
       {top, rest} = Enum.split(items, 3)
-      {:ok, Enum.reverse(top) ++ rest}
+      {:ok, Enum.reverse(top, rest)}
     end
   end
 
   defmodule FailingReranker do
-    @behaviour Recollect.Reranker
+    @moduledoc false
+    @behaviour Reranker
 
     @impl true
     def rerank(_query, _items, _opts), do: {:error, :boom}
   end
 
   defmodule CustomReranker do
-    @behaviour Recollect.Reranker
+    @moduledoc false
+    @behaviour Reranker
 
     @impl true
     def rerank(_query, items, _opts), do: {:ok, Enum.reverse(items)}
@@ -44,11 +47,14 @@ defmodule Recollect.RerankerTest do
 
     test "reversing reranker reverses the top N" do
       {:ok, result} = ReversingReranker.rerank("query", @items, [])
-      assert result == [%{kind: :entry, id: "3", content: "third"},
-                        %{kind: :entry, id: "2", content: "second"},
-                        %{kind: :entry, id: "1", content: "first"},
-                        %{kind: :entry, id: "4", content: "fourth"},
-                        %{kind: :entry, id: "5", content: "fifth"}]
+
+      assert result == [
+               %{kind: :entry, id: "3", content: "third"},
+               %{kind: :entry, id: "2", content: "second"},
+               %{kind: :entry, id: "1", content: "first"},
+               %{kind: :entry, id: "4", content: "fourth"},
+               %{kind: :entry, id: "5", content: "fifth"}
+             ]
     end
   end
 
@@ -72,7 +78,8 @@ defmodule Recollect.RerankerTest do
           scope_id: scope_id,
           mode: :hybrid,
           rerank: true,
-          rerank_max_items: 10)
+          rerank_max_items: 10
+        )
 
       assert is_list(context.items)
     end
@@ -84,7 +91,8 @@ defmodule Recollect.RerankerTest do
           mode: :hybrid,
           rerank: true,
           rerank_max_items: 10,
-          budget: 100)
+          budget: 100
+        )
 
       assert is_list(context.items)
     end
@@ -96,7 +104,8 @@ defmodule Recollect.RerankerTest do
           mode: :hybrid,
           rerank: true,
           reranker: FailingReranker,
-          rerank_max_items: 10)
+          rerank_max_items: 10
+        )
 
       assert is_list(context.items)
     end
@@ -107,7 +116,8 @@ defmodule Recollect.RerankerTest do
           scope_id: scope_id,
           mode: :hybrid,
           rerank: true,
-          reranker: CustomReranker)
+          reranker: CustomReranker
+        )
 
       assert is_list(context.items)
     end

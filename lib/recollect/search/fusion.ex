@@ -55,7 +55,8 @@ defmodule Recollect.Search.Fusion do
         results
         |> Enum.with_index()
         |> Enum.map(fn {item, rank} ->
-          Map.put(item, :_rank, rank + 1)
+          item
+          |> Map.put(:_rank, rank + 1)
           |> Map.put(:_source, source)
         end)
       end)
@@ -64,7 +65,7 @@ defmodule Recollect.Search.Fusion do
     # RRF score: sum of 1 / (k + rank) across all sources
     fused =
       ranked
-      |> Enum.group_by(& Map.get(&1, :id))
+      |> Enum.group_by(&Map.get(&1, :id))
       |> Enum.map(fn {_id, items} ->
         rrf_score =
           items
@@ -75,8 +76,8 @@ defmodule Recollect.Search.Fusion do
 
         base_item
         |> Map.put(:_score, rrf_score)
-        |> Map.put(:_sources, Enum.map(items, & Map.get(&1, :_source)))
-        |> Map.put(:_ranks, Enum.map(items, & Map.get(&1, :_rank)))
+        |> Map.put(:_sources, Enum.map(items, &Map.get(&1, :_source)))
+        |> Map.put(:_ranks, Enum.map(items, &Map.get(&1, :_rank)))
       end)
       |> Enum.sort_by(fn item -> -Map.get(item, :_score) end)
 
@@ -93,8 +94,7 @@ defmodule Recollect.Search.Fusion do
 
     # Extract just the item maps, removing private fields
     items =
-      limited
-      |> Enum.map(fn item ->
+      Enum.map(limited, fn item ->
         Map.drop(item, [:_score, :_sources, :_ranks, :_rank, :_source])
       end)
 
@@ -102,14 +102,14 @@ defmodule Recollect.Search.Fusion do
      %{
        items: items,
        fused_count: length(fused),
-       sources: Enum.map(results, & Map.get(&1, :source))
+       sources: Enum.map(results, &Map.get(&1, :source))
      }}
   end
 
   # Apply diversity: max N items per entry_type
   defp apply_diversity(items, limit) do
     items
-    |> Enum.group_by(& Map.get(&1, :kind))
+    |> Enum.group_by(&Map.get(&1, :kind))
     |> Enum.flat_map(fn {_kind, group} -> Enum.take(group, limit) end)
     |> Enum.sort_by(fn item -> -Map.get(item, :_score) end)
   end

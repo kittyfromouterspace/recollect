@@ -269,14 +269,17 @@ defmodule Recollect.Page do
       {:ok, embedding} ->
         embedding_str = embedding_to_str(embedding)
 
-        case Recollect.Search.Vector.search_entries_by_embedding(embedding_str, scope_id, limit: limit * 5, min_score: min_score) do
+        case Recollect.Search.Vector.search_entries_by_embedding(embedding_str, scope_id,
+               limit: limit * 5,
+               min_score: min_score
+             ) do
           {:ok, entry_results} ->
             # Find pages that cite matching entries
             page_scores = find_pages_for_entries(Config.repo(), entry_results)
 
             pages =
               page_scores
-              |> Enum.sort_by(& -&1.score)
+              |> Enum.sort_by(&(-&1.score))
               |> Enum.take(limit)
               |> Enum.map(fn %{page: page, score: score, entry_ids: _entry_ids} ->
                 %{
@@ -535,36 +538,33 @@ defmodule Recollect.Page do
       []
     else
       page_entry_ids =
-        repo.all(
-          from(s in PageSource,
-            where: s.entry_id in ^entry_ids,
-            select: {s.page_id, s.entry_id}
-          )
+        from(s in PageSource,
+          where: s.entry_id in ^entry_ids,
+          select: {s.page_id, s.entry_id}
         )
+        |> repo.all()
         |> Enum.group_by(fn {page_id, _entry_id} -> page_id end)
         |> Map.new(fn {page_id, rows} -> {page_id, Enum.map(rows, &elem(&1, 1))} end)
 
       # Score each page by its best matching entry score
       entry_score_map =
-        entry_results
-        |> Enum.reduce(%{}, fn r, acc ->
+        Enum.reduce(entry_results, %{}, fn r, acc ->
           id = r["id"] || r[:id]
           score = r["score"] || r[:score] || 0.0
           Map.put(acc, Util.uuid_to_string(id), score)
         end)
 
-        page_entry_ids
-        |> Enum.map(fn {page_id, cited_entry_ids} ->
-          page = repo.get(Page, page_id)
+      Enum.map(page_entry_ids, fn {page_id, cited_entry_ids} ->
+        page = repo.get(Page, page_id)
 
-          best_score =
-            cited_entry_ids
-            |> Enum.map(fn eid -> Map.get(entry_score_map, eid, 0.0) end)
-            |> Enum.max()
-            |> Kernel.+(0.0)
+        best_score =
+          cited_entry_ids
+          |> Enum.map(fn eid -> Map.get(entry_score_map, eid, 0.0) end)
+          |> Enum.max()
+          |> Kernel.+(0.0)
 
-          %{page: page, score: best_score, entry_ids: cited_entry_ids}
-        end)
+        %{page: page, score: best_score, entry_ids: cited_entry_ids}
+      end)
     end
   end
 
