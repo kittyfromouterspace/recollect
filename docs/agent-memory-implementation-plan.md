@@ -3377,6 +3377,7 @@ the live status column.
 | 2026-11-10 | MEM-033 | B-2603 | `reranker` | Reranker behaviour - Recollect.Reranker behaviour with no-op default; config :recollect, retrieval: [rerank: true, reranker: Mod, rerank_max_items: N]; applied after fusion, before budget; fallback to fused order on reranker error; 475/0 |
 | 2026-11-10 | MEM-034 | B-2604 | `eval` | Eval harness + telemetry - eval/ directory with Q&A fixtures, metrics (recall@k, precision@k, answer correctness), harness runner (memory-on/memory-off); telemetry events documented for search/brief/dream/consolidation/recall; eval/ added to test elixirc_paths; tests tagged :eval for opt-in CI; 488/0 |
 | 2026-11-10 | MEM-037 | B-2607 | `migration` | Migration status + upgrade generator - priv/recollect_migrations.manifest.json covers all 19 migrations; mix recollect.migration_status compares host mirror vs manifest (applied/mirrored-not-applied/missing/unknown), exits non-zero on missing; mix recollect.gen.upgrade --from/--to generates idempotent DDL; 492/0 |
+| 2026-11-10 | MEM-038 | B-2608 | `fallback` | Keyword fallback in search - retrieval.keyword_fallback config (default true); ILIKE/LIKE on content+summary when embeddings disabled or vector results < limit/3; adapter-aware casing (ILIKE Postgres, LIKE SQLite); results merged vector-first then keyword deduped by id; resolved_mode in context pack; [:recollect, :search, :fallback] telemetry; 496/0 |
 | 2026-11-08 | — | v0.10.0 | `f380054` | Released v0.10.0 (tag on mem-phase0; Hex publish deferred) — Phase 4 Pages; full mix check green (clean compile, format, 450/0) |
 
 ---
@@ -3422,7 +3423,7 @@ the live status column.
 | MEM-035 | `remember/2` never throws on disabled enrichment | 0 | 1 | — | B-2605 | implemented_local |
 | MEM-036 | Engine-level secret guard | 0 | 1 | — | B-2606 | implemented_local |
 | MEM-037 | Migration status + upgrade generator | 0 | 2 | — | B-2607 | implemented_local |
-| MEM-038 | Keyword fallback in search | 1 | 2 | — | B-2608 | open |
+| MEM-038 | Keyword fallback in search | 1 | 2 | — | B-2608 | implemented_local |
 | MEM-039 | Project mapping from transcript cwd/remote | 1 | 1 | — | B-2609 | open |
 | MEM-040 | Durable staging table | 2 | 3 | 014 | B-2592 | implemented_local |
 

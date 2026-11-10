@@ -235,6 +235,8 @@ defmodule Recollect.Config do
   - `:reranker` — reranker module implementing `Recollect.Reranker`
     (default: `Recollect.Reranker`)
   - `:rerank_max_items` — max fused items sent to reranker (default: 50)
+  - `:keyword_fallback` — enable ILIKE keyword fallback when embeddings
+    are disabled or vector recall is poor (default: true)
   """
   def retrieval do
     Application.get_env(:recollect, :retrieval, [])

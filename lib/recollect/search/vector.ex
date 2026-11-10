@@ -65,7 +65,12 @@ defmodule Recollect.Search.Vector do
           {:ok, results}
 
         {:error, reason} ->
-          {:error, reason}
+          # Embeddings disabled — return empty results so caller can use keyword fallback
+          if Config.embedding_enabled?() do
+            {:error, reason}
+          else
+            {:ok, []}
+          end
       end
 
     duration = System.monotonic_time() - start_time
@@ -537,6 +542,115 @@ defmodule Recollect.Search.Vector do
 
     params = [embedding_str, owner_id, embedding_str, min_score] ++ filter_params ++ [embedding_str, limit]
     {sql, params}
+  end
+
+  @doc """
+  Keyword fallback search over entries using ILIKE/LIKE on content and summary.
+
+  Used when embeddings are disabled or vector recall is poor.
+  Adapter-aware casing: ILIKE for PostgreSQL, LIKE for SQLite/libSQL.
+
+  Returns `{:ok, results}` where each result has `:id`, `:content`, `:summary`,
+  `:entry_type`, `:score` (set to 1.0 for keyword match), and `:source: :keyword`.
+  """
+  def keyword_search_entries(query_text, scope_id, owner_id, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 10)
+    filters = Keyword.get(opts, :filters, %{})
+
+    adapter = Config.adapter()
+    repo = Config.repo()
+
+    {sql, params} =
+      keyword_entries_query(adapter.dialect(), adapter, query_text, scope_id, owner_id, limit, filters)
+
+    case repo.query(sql, params) do
+      {:ok, %{rows: rows, columns: columns}} ->
+        results = Enum.map(rows, fn row -> Recollect.Util.row_to_map(columns, row) end)
+        results = Enum.map(results, fn r -> Map.put(r, :source, :keyword) end)
+        {:ok, results}
+
+      {:error, reason} ->
+        Logger.error("Recollect keyword search failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp keyword_entries_query(:postgres, _adapter, query_text, scope_id, owner_id, limit, filters) do
+    {filter_sql, filter_params} = build_entry_filters_pg(filters)
+
+    search_terms = String.split(query_text, " ", trim: true)
+
+    like_conditions =
+      search_terms
+      |> Enum.with_index()
+      |> Enum.map_join(" AND ", fn {_term, idx} ->
+        param_idx = 3 + (idx * 2)
+        "(me.content ILIKE $#{param_idx} OR me.summary ILIKE $#{param_idx + 1})"
+      end)
+
+    params = [Recollect.Util.uuid_to_bin(scope_id), Recollect.Util.uuid_to_bin(owner_id)]
+    param_terms = Enum.flat_map(search_terms, fn t -> ["%" <> t <> "%", "%" <> t <> "%"] end)
+
+    params = [Recollect.Util.uuid_to_bin(scope_id), Recollect.Util.uuid_to_bin(owner_id)]
+    param_terms = Enum.flat_map(search_terms, fn t -> ["%" <> t <> "%", "%" <> t <> "%"] end)
+
+    sql = """
+    SELECT
+      me.id, me.content, me.summary, me.entry_type, me.source,
+      me.metadata, me.confidence, me.inserted_at,
+      me.half_life_days, me.pinned, me.emotional_valence, me.access_count,
+      me.last_accessed_at, me.context_hints, me.scope_id,
+      1.0 AS score
+    FROM recollect_entries me
+    WHERE me.scope_id = $1
+      AND me.owner_id = $2
+      AND me.entry_type != 'archived'
+      AND me.deleted_at IS NULL
+      AND (#{like_conditions})
+      #{filter_sql}
+    ORDER BY me.updated_at DESC, me.access_count DESC
+    LIMIT #{limit}
+    """
+
+    {sql, params ++ param_terms ++ filter_params}
+  end
+
+  defp keyword_entries_query(dialect, _adapter, query_text, scope_id, owner_id, limit, filters)
+       when dialect in [:sqlite, :libsql] do
+    {filter_sql, filter_params} = build_entry_filters_sqlite(filters)
+
+    search_terms = String.split(query_text, " ", trim: true)
+
+    like_conditions =
+      search_terms
+      |> Enum.with_index()
+      |> Enum.map_join(" AND ", fn {_term, idx} ->
+        param_idx = 3 + (idx * 2)
+        "(me.content LIKE ?#{param_idx} OR me.summary LIKE ?#{param_idx + 1})"
+      end)
+
+    params = [Recollect.Util.uuid_to_bin(scope_id), Recollect.Util.uuid_to_bin(owner_id)]
+    param_terms = Enum.flat_map(search_terms, fn t -> ["%" <> t <> "%", "%" <> t <> "%"] end)
+
+    sql = """
+    SELECT
+      me.id, me.content, me.summary, me.entry_type, me.source,
+      me.metadata, me.confidence, me.inserted_at,
+      me.half_life_days, me.pinned, me.emotional_valence, me.access_count,
+      me.last_accessed_at, me.context_hints, me.scope_id,
+      1.0 AS score
+    FROM recollect_entries me
+    WHERE me.scope_id = ?
+      AND me.owner_id = ?
+      AND me.entry_type != 'archived'
+      AND me.deleted_at IS NULL
+      AND (#{like_conditions})
+      #{filter_sql}
+    ORDER BY me.updated_at DESC, me.access_count DESC
+    LIMIT #{limit}
+    """
+
+    {sql, params ++ param_terms ++ filter_params}
   end
 
   defp entities_query(:postgres, _adapter, embedding_str, owner_id, limit) do

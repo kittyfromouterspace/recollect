@@ -26,6 +26,7 @@ defmodule Recollect.Search do
 
   @diagnostic_words ~w(why how debug trace depends caused broken failing)
 
+  alias Recollect.Config
   alias Recollect.Page
   alias Recollect.Recall
   alias Recollect.Search.Fusion
@@ -65,12 +66,56 @@ defmodule Recollect.Search do
     reranker_module = Keyword.get(opts, :reranker, Keyword.get(retrieval_cfg, :reranker, Recollect.Reranker))
     rerank_max_items = Keyword.get(opts, :rerank_max_items, Keyword.get(retrieval_cfg, :rerank_max_items, 50))
 
+    # MEM-038: keyword fallback config
+    keyword_fallback_enabled = Keyword.get(opts, :keyword_fallback, Keyword.get(retrieval_cfg, :keyword_fallback, true))
+
     # Candidate generation: vector search
     {:ok, vector_results} = Vector.search(query_text, opts)
 
     # Separate by type
     chunks = Enum.filter(vector_results, &(&1[:result_type] == :chunk))
     entries = Enum.filter(vector_results, &(&1[:result_type] == :entry))
+
+    # MEM-038: keyword fallback when embeddings disabled or vector recall is poor
+    {resolved_mode, keyword_entries} =
+      if keyword_fallback_enabled do
+        embeddings_disabled = Config.embedding_credentials() == :disabled
+        vector_entry_count = length(entries)
+        threshold = div(limit, 3)
+
+        if embeddings_disabled or vector_entry_count < threshold do
+          case Vector.keyword_search_entries(query_text, opts[:scope_id], opts[:owner_id], limit: limit) do
+            {:ok, kw_results} ->
+              # Telemetry: fallback event
+              Recollect.Telemetry.event([:recollect, :search, :fallback], %{
+                result_count: length(kw_results),
+                reason: if(embeddings_disabled, do: :embeddings_disabled, else: :poor_vector_recall),
+                vector_count: vector_entry_count,
+                threshold: threshold
+              })
+
+              mode = if embeddings_disabled, do: :keyword_fallback, else: :both
+              {mode, kw_results}
+
+            {:error, _} ->
+              {:vector, []}
+          end
+        else
+          {:vector, []}
+        end
+      else
+        {:vector, []}
+      end
+
+    # Merge: vector entries first, keyword entries appended (deduped by id)
+    vector_entry_ids = MapSet.new(Enum.map(entries, & &1["id"]))
+    merged_entries = entries ++ Enum.filter(keyword_entries, fn ke ->
+      id = Map.get(ke, "id") || Map.get(ke, :id)
+      id != nil and not MapSet.member?(vector_entry_ids, id)
+    end)
+
+    # Update entries to merged set
+    entries = merged_entries
 
     # MEM-021: `anchors: [path: ...]` gives anchored entries a modest
     # score boost and appends anchored entries the vector search missed.
@@ -230,6 +275,7 @@ defmodule Recollect.Search do
         relations: graph_relations,
         query: query_text,
         resolved_tier: resolved_tier,
+        resolved_mode: resolved_mode,
         mode: mode,
         items: final_results,
         candidates_considered:
