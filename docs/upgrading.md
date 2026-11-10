@@ -104,10 +104,10 @@ its original semantics (no extra `IF NOT EXISTS` wrapping is added).
 ## Gotchas hit during the v1.0 upgrade
 
 - **Postgrex parameter types:** new search SQL uses binary UUIDs
-  (`Recollect.Util.uuid_to_bin/1`) for `uuid` columns and interpolates
+  (`uuid_to_bin/1`) for `uuid` columns and interpolates
   `LIMIT` as a literal integer — parameterized `LIMIT $n` fails with
   "could not determine data type of parameter".
-- **String-keyed rows:** results from `Recollect.Util.row_to_map/2` use
+- **String-keyed rows:** results from the internal `row_to_map/2` helper use
   string keys. Anything that consumes them with atom keys (e.g. `item.id`,
   `Map.get(item, :id)`) silently fails — use `item["id"] || item[:id]`.
 - **`mix recollect.migration_status` starts the app** (`Mix.Task.run("app.start")`)
