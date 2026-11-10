@@ -1,0 +1,214 @@
+{
+  "generated_at": "2026-11-10",
+  "recollect_version": "0.10.0",
+  "migrations": [
+    {
+      "version": "20240101000000",
+      "name": "create_mneme_tables",
+      "module": "Recollect.Repo.Migrations.CreateRecollectTables",
+      "creates": [
+        "recollect_collections",
+        "recollect_documents",
+        "recollect_chunks",
+        "recollect_entities",
+        "recollect_relations",
+        "recollect_pipeline_runs"
+      ],
+      "alters": []
+    },
+    {
+      "version": "20250407000000",
+      "name": "add_memory_enhancements",
+      "module": "Recollect.Repo.Migrations.AddMemoryEnhancements",
+      "creates": [],
+      "alters": [
+        "recollect_entries (memory_level, stability, epistemic, valid_from, valid_to, verified_at, verification, version, deleted_at)"
+      ]
+    },
+    {
+      "version": "20250408000000",
+      "name": "add_conflicts_table",
+      "module": "Recollect.Repo.Migrations.AddConflictsTable",
+      "creates": [
+        "recollect_conflicts"
+      ],
+      "alters": []
+    },
+    {
+      "version": "20250409000000",
+      "name": "add_consolidation_runs_table",
+      "module": "Recollect.Repo.Migrations.AddConsolidationRunsTable",
+      "creates": [
+        "recollect_consolidation_runs"
+      ],
+      "alters": []
+    },
+    {
+      "version": "20250410000000",
+      "name": "add_context_hints",
+      "module": "Recollect.Repo.Migrations.AddContextHints",
+      "creates": [],
+      "alters": [
+        "recollect_entries (context_hints, embedding_model_id)"
+      ]
+    },
+    {
+      "version": "20250411000000",
+      "name": "add_handoffs_table",
+      "module": "Recollect.Repo.Migrations.AddHandoffsTable",
+      "creates": [
+        "recollect_handoffs"
+      ],
+      "alters": []
+    },
+    {
+      "version": "20250412000000",
+      "name": "add_mipmaps_table",
+      "module": "Recollect.Repo.Migrations.AddMipmapsTable",
+      "creates": [
+        "recollect_mipmaps"
+      ],
+      "alters": []
+    },
+    {
+      "version": "20260408000000",
+      "name": "embedding_model_id_and_1536_dim",
+      "module": "Recollect.Repo.Migrations.EmbeddingModelIdAnd1536Dim",
+      "creates": [],
+      "alters": [
+        "recollect_chunks (embedding_model_id)",
+        "recollect_documents (summary_embedding_model_id)",
+        "recollect_entities (embedding_model_id)"
+      ]
+    },
+    {
+      "version": "20260903000000",
+      "name": "add_document_failed_attempts",
+      "module": "Recollect.Repo.Migrations.AddDocumentFailedAttempts",
+      "creates": [],
+      "alters": [
+        "recollect_documents (failed_attempts)"
+      ]
+    },
+    {
+      "version": "20260903000001",
+      "name": "add_document_summary_embedding",
+      "module": "Recollect.Repo.Migrations.AddDocumentSummaryEmbedding",
+      "creates": [],
+      "alters": [
+        "recollect_documents (summary_embedding)"
+      ]
+    },
+    {
+      "version": "20260903000002",
+      "name": "add_relation_triplet_embedding",
+      "module": "Recollect.Repo.Migrations.AddRelationTripletEmbedding",
+      "creates": [],
+      "alters": [
+        "recollect_relations (triplet_embedding, triplet_embedding_model_id)"
+      ]
+    },
+    {
+      "version": "20261007000000",
+      "name": "mipmap_embedding_to_vector",
+      "module": "Recollect.Repo.Migrations.MipmapEmbeddingToVector",
+      "creates": [],
+      "alters": [
+        "recollect_mipmaps (embedding column type)"
+      ]
+    },
+    {
+      "version": "20261107000000",
+      "name": "add_entry_tags",
+      "module": "Recollect.Repo.Migrations.AddEntryTags",
+      "creates": [
+        "recollect_entry_tags"
+      ],
+      "alters": []
+    },
+    {
+      "version": "20261107000001",
+      "name": "add_entries_source_dedupe_index",
+      "module": "Recollect.Repo.Migrations.AddEntriesSourceDedupeIndex",
+      "creates": [],
+      "alters": [
+        "recollect_entries (unique index on source + source_id)"
+      ]
+    },
+    {
+      "version": "20261107000009",
+      "name": "add_lexical_indexes",
+      "module": "Recollect.Repo.Migrations.AddLexicalIndexes",
+      "creates": [],
+      "alters": [
+        "recollect_entries (search_vector tsvector column, GIN index)",
+        "recollect_entries_fts (FTS5 table, SQLite/libSQL only)"
+      ]
+    },
+    {
+      "version": "20261108000000",
+      "name": "add_events_and_evidence",
+      "module": "Recollect.Repo.Migrations.AddEventsAndEvidence",
+      "creates": [
+        "recollect_events",
+        "recollect_evidence"
+      ],
+      "alters": []
+    },
+    {
+      "version": "20261108010000",
+      "name": "add_entry_lifecycle_fields",
+      "module": "Recollect.Repo.Migrations.AddEntryLifecycleFields",
+      "creates": [],
+      "alters": [
+        "recollect_entries (half_life_days, pinned, emotional_valence, schema_fit, outcome_score, confidence_state)"
+      ]
+    },
+    {
+      "version": "20261109000000",
+      "name": "add_recall_anchors",
+      "module": "Recollect.Repo.Migrations.AddRecallAnchors",
+      "creates": [
+        "recollect_recall_anchors"
+      ],
+      "alters": []
+    },
+    {
+      "version": "20261109100000",
+      "name": "add_staging",
+      "module": "Recollect.Repo.Migrations.AddStaging",
+      "creates": [
+        "recollect_staging"
+      ],
+      "alters": []
+    },
+    {
+      "version": "20261109200000",
+      "name": "add_dream_runs",
+      "module": "Recollect.Repo.Migrations.AddDreamRuns",
+      "creates": [
+        "recollect_dream_runs"
+      ],
+      "alters": []
+    },
+    {
+      "version": "20261109300000",
+      "name": "add_reconciliations",
+      "module": "Recollect.Repo.Migrations.AddReconciliations",
+      "creates": [
+        "recollect_reconciliations"
+      ],
+      "alters": []
+    },
+    {
+      "version": "20261109400000",
+      "name": "add_pages",
+      "module": "Recollect.Repo.Migrations.AddPages",
+      "creates": [
+        "recollect_pages",
+        "recollect_page_sources"
+      ],
+      "alters": []
+    }
+  ]
+}
