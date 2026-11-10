@@ -1,7 +1,7 @@
 defmodule Recollect.MixProject do
   use Mix.Project
 
-  @version "1.0.0"
+  @version "1.0.1"
 
   def project do
     [
@@ -90,7 +90,7 @@ defmodule Recollect.MixProject do
       main: "Recollect",
       source_url: "https://github.com/kittyfromouterspace/recollect",
       source_ref: "v#{@version}",
-      extras: ["README.md", "LICENSE", "docs/architecture.md", "docs/telemetry.md"]
+      extras: ["README.md", "LICENSE", "docs/architecture.md", "docs/telemetry.md", "docs/upgrading.md"]
     ]
   end
 end

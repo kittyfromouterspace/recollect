@@ -90,6 +90,13 @@ defmodule Mix.Tasks.Recollect.Gen.Upgrade do
   # functions. This produces REAL, runnable DDL (the actual upstream
   # migrations), rather than approximated table stubs.
   #
+  # Learned from the ops_center upgrade: upstream migrations use `change/0`
+  # as often as `up/0`, so the generated file always includes an
+  # `apply_upstream/1` helper that dispatches to whichever exists. Rollback
+  # runs in a fresh process, so `down` must `Code.require_file` the upstream
+  # files again before delegating (otherwise function_exported? returns false
+  # and down silently no-ops).
+  #
   # Idempotency note: Ecto's schema_migrations table already guards re-runs of
   # this file. Individual upstream migrations use the same DDL as upstream —
   # no additional IF NOT EXISTS wrapping is added (matching upstream semantics).
@@ -101,21 +108,38 @@ defmodule Mix.Tasks.Recollect.Gen.Upgrade do
         [
           "# ── #{m["version"]} #{m["name"]} ──",
           "Code.require_file(#{inspect(migration_filename(m))}, Path.join(:code.priv_dir(:recollect), \"repo/migrations\"))",
-          "#{m["module"]}.up()"
+          "apply_upstream(#{m["module"]})"
         ]
       end)
 
-    down_statements =
+    down_requires =
       range
       |> Enum.reverse()
-      |> Enum.flat_map(fn m ->
-        [
-          "if function_exported?(#{m["module"]}, :down, 0), do: #{m["module"]}.down()"
-        ]
+      |> Enum.map(fn m -> inspect(migration_filename(m)) end)
+      |> Enum.join(",\n")
+
+    down_delegations =
+      range
+      |> Enum.reverse()
+      |> Enum.map(fn m ->
+        "if function_exported?(#{m["module"]}, :down, 0), do: #{m["module"]}.down()"
       end)
 
     up_statements = if up_statements == [], do: ["# No changes between versions"], else: up_statements
-    down_statements = if down_statements == [], do: ["# No changes between versions"], else: down_statements
+
+    down_statements =
+      if down_delegations == [] do
+        ["# No changes between versions"]
+      else
+        [
+          "# Rollback runs in a fresh process: load upstream modules first.",
+          "for file <- [",
+          down_requires,
+          "] do",
+          "  Code.require_file(file, Path.join(:code.priv_dir(:recollect), \"repo/migrations\"))",
+          "end"
+        ] ++ down_delegations
+      end
 
     ~s"""
     defmodule Recollect.Repo.Migrations.Upgrade#{module_name_suffix} do
@@ -133,6 +157,16 @@ defmodule Mix.Tasks.Recollect.Gen.Upgrade do
 
       def down do
     #{indent(down_statements, 8)}
+      end
+
+      # Upstream Recollect migrations define either up/0 or change/0 — call
+      # whichever exists, so this mirror works for both styles.
+      defp apply_upstream(mod) do
+        cond do
+          function_exported?(mod, :up, 0) -> mod.up()
+          function_exported?(mod, :change, 0) -> mod.change()
+          true -> raise "upstream migration \#{inspect(mod)} has no up/0 or change/0"
+        end
       end
     end
     """

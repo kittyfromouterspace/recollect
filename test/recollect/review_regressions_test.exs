@@ -197,8 +197,12 @@ defmodule Recollect.ReviewRegressionsTest do
         content = File.read!(file)
 
         assert content =~ "Code.require_file("
-        assert content =~ ".up()"
+        assert content =~ "apply_upstream("
+        assert content =~ "function_exported?(mod, :up, 0)"
+        assert content =~ "function_exported?(mod, :change, 0)"
         assert content =~ ":down, 0"
+        # Rollback loads upstream files too
+        assert content =~ "Rollback runs in a fresh process"
         # No leftover placeholder DDL
         refute content =~ "binary_id PRIMARY KEY"
       after

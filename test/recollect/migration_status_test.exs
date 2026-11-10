@@ -80,6 +80,28 @@ defmodule Recollect.MigrationStatusTest do
     end
   end
 
+  describe "analyze_tables" do
+    test "reports all manifest tables present in test DB" do
+      manifest = File.read!(@manifest_path) |> Jason.decode!()
+      results = Mix.Tasks.Recollect.MigrationStatus.analyze_tables(manifest, Recollect.Config.repo())
+
+      assert results != []
+      assert Enum.all?(results, &(&1.status == :applied))
+    end
+
+    test "flags a missing table" do
+      manifest = %{
+        "migrations" => [
+          %{"version" => "1", "name" => "x", "module" => "X", "creates" => ["recollect_nonexistent_table"], "alters" => []}
+        ]
+      }
+
+      results = Mix.Tasks.Recollect.MigrationStatus.analyze_tables(manifest, Recollect.Config.repo())
+      missing = Enum.find(results, &(&1.table == "recollect_nonexistent_table"))
+      assert missing.status == :missing
+    end
+  end
+
   defp any_creates_or_alters_entries(manifest) do
     Enum.any?(manifest["migrations"], fn m ->
       Enum.any?(m["creates"], &(&1 == "recollect_entries")) or
