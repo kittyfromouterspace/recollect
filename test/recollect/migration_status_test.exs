@@ -6,6 +6,16 @@ defmodule Recollect.MigrationStatusTest do
   @manifest_path Path.join([:code.priv_dir(:recollect), "recollect_migrations.manifest.json"])
 
   describe "manifest" do
+    test "every manifest version matches an actual migration file" do
+      manifest = File.read!(@manifest_path) |> Jason.decode!()
+      files = File.ls!(Path.join([:code.priv_dir(:recollect), "repo", "migrations"]))
+
+      Enum.each(manifest["migrations"], fn m ->
+        expected = "#{m["version"]}_#{m["name"]}.exs"
+        assert expected in files, "manifest entry #{expected} has no matching migration file"
+      end)
+    end
+
     test "parses and covers every migration" do
       manifest = @manifest_path |> File.read!() |> Jason.decode!()
 

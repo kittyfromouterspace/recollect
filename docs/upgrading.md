@@ -103,6 +103,22 @@ its original semantics (no extra `IF NOT EXISTS` wrapping is added).
 
 ## Gotchas hit during the v1.0 upgrade
 
+- **Partially-applied mirrors:** a host's generator output or earlier hand
+  mirror may already include SOME of a migration's columns/tables. Upstream
+  migrations are all-or-nothing, so before applying the generated mirror,
+  check which objects already exist and remove the migrations you do not
+  need — otherwise you hit `duplicate_column`/`already exists` errors. Two
+  real examples from the home upgrade:
+    * `20250407000000_add_memory_enhancements` adds `half_life_days`,
+      `pinned`, `emotional_valence`, `schema_fit`, `outcome_score`,
+      `confidence_state` — all of which the generator already created.
+    * `20261108010000_add_entry_lifecycle_fields` adds `memory_level`,
+      `stability`, `epistemic`, `valid_from/to`, `verified_at`,
+      `verification`, `version`, `deleted_at` — a different column set.
+      Do not confuse the two: checking for `half_life_days` tells you
+      nothing about `memory_level`/`deleted_at`.
+  Check tables with `mix recollect.migration_status --tables` and columns
+  with `information_schema.columns` before trimming the generated file.
 - **Postgrex parameter types:** new search SQL uses binary UUIDs
   (`uuid_to_bin/1`) for `uuid` columns and interpolates
   `LIMIT` as a literal integer — parameterized `LIMIT $n` fails with
